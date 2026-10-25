@@ -1,228 +1,272 @@
-import React, { useState } from "react";
-import { Plus, CheckCircle2, Clock, AlertTriangle, X } from "lucide-react";
-import { TaskItem, ConflictItem } from "../types/api";
-
-interface TasksScreenProps {
-  tasks: TaskItem[];
-  conflicts: ConflictItem[];
-  onCreateTask: (title: string, desc: string, due?: string) => Promise<void>;
-  onUpdateStatus: (id: string, status: TaskItem["status"]) => Promise<void>;
-}
-
-export const TasksScreen: React.FC<TasksScreenProps> = ({
+import { DateFilter } from "../lib/DateFilter";
+import { usePreference, dateRange } from "../lib/preferences";
+import React, { useEffect, useState } from "react";
+import { TaskItem } from "../types/api";
+import { ordered, localDate } from "../lib/list";
+const statuses = {
+  todo: "К выполнению",
+  in_progress: "В работе",
+  waiting_reply: "Жду ответа",
+  done: "Выполнено",
+  cancelled: "Отменено",
+};
+export const TasksScreen = ({
   tasks,
-  conflicts,
-  onCreateTask,
-  onUpdateStatus,
+  request,
+  onRefresh,
+  createSignal = 0,
+}: {
+  tasks: TaskItem[];
+  request: (type: string, payload?: any) => Promise<any>;
+  onRefresh: () => Promise<void>;
+  createSignal?: number;
+  [key: string]: any;
 }) => {
-  const [showModal, setShowModal] = useState(false);
-  const [title, setTitle] = useState("");
-  const [desc, setDesc] = useState("");
-  const [due, setDue] = useState("");
-
-  const columns: Array<{ status: TaskItem["status"]; title: string; color: string }> = [
-    { status: "todo", title: "К выполнению", color: "var(--primary)" },
-    { status: "in_progress", title: "В работе", color: "var(--warning)" },
-    { status: "waiting_reply", title: "Жду ответа", color: "var(--purple)" },
-    { status: "done", title: "Выполнено", color: "var(--success)" },
-  ];
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    await onCreateTask(title.trim(), desc.trim(), due || undefined);
-    setTitle("");
-    setDesc("");
-    setDue("");
-    setShowModal(false);
+  const [editing, setEditing] = useState<any>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const [filter, setFilter] = usePreference("tasks.filter", "active");
+  const [sort, setSort] = usePreference("tasks.sort", "due_date");
+  const [direction, setDirection] = usePreference("tasks.direction", 1),
+    [query, setQuery] = usePreference("tasks.query", ""),
+    [page, setPage] = useState(0),
+    [view, setView] = usePreference("tasks.view", "list");
+  const [from, setFrom] = usePreference("tasks.from", "");
+  const [to, setTo] = usePreference("tasks.to", "");
+  const fresh = () => {
+    if (editing && !window.confirm("Заменить несохранённый черновик задачи?"))
+      return;
+    setEditing({ title: "", description: "", due_date: "", status: "todo" });
   };
-
+  useEffect(() => {
+    const protect = (e: BeforeUnloadEvent) => {
+      if (editing) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, [editing]);
+  useEffect(() => {
+    if (createSignal) fresh();
+  }, [createSignal]);
+  useEffect(() => {
+    setPage(0);
+  }, [filter, sort, direction, query, from, to]);
+  const run = async (type: string, payload: any) => {
+    setBusy(true);
+    setError("");
+    try {
+      await request(type, payload);
+      await onRefresh();
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const visible = ordered(
+    tasks.filter(
+      (t) =>
+        (filter === "all" ||
+          (filter === "active" && !["done", "cancelled"].includes(t.status)) ||
+          (filter === "overdue" &&
+            !!t.due_date &&
+            t.due_date < localDate() &&
+            !["done", "cancelled"].includes(t.status)) ||
+          filter === t.status) &&
+        dateRange(t.due_date, from, to) &&
+        t.title.toLocaleLowerCase("ru").includes(query.toLocaleLowerCase("ru")),
+    ),
+    sort,
+    direction,
+  );
+  useEffect(() => {
+    setPage((p) =>
+      Math.min(p, Math.max(0, Math.ceil(visible.length / 20) - 1)),
+    );
+  }, [visible.length]);
+  const card = (t: TaskItem) => (
+    <article className="card-box" key={t.id}>
+      <h3>{t.title}</h3>
+      <p>
+        {statuses[t.status]} · {t.due_date || "Без срока"}
+      </p>
+      <p>{t.description}</p>
+      <button disabled={busy} onClick={() => setEditing({ ...t })}>
+        Редактировать
+      </button>
+      <button
+        disabled={busy}
+        onClick={() => {
+          if (window.confirm("Удалить задачу?"))
+            void run("tasks:delete", { id: t.id, revision: t.revision });
+        }}
+      >
+        Удалить
+      </button>
+    </article>
+  );
   return (
-    <div>
-      {/* Header bar with button */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+    <section>
+      <h2>Задачи</h2>
+      <DateFilter
+        from={from}
+        to={to}
+        onFrom={setFrom}
+        onTo={setTo}
+        onReset={() => {
+          setFrom("");
+          setTo("");
+          setQuery("");
+          setFilter("active");
+        }}
+      />
+      {error && <p role="alert">{error}</p>}
+      <button onClick={fresh}>Новая задача</button>
+      <input
+        aria-label="Поиск задач"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      <select
+        aria-label="Фильтр задач"
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+      >
+        <option value="active">Активные</option>
+        <option value="all">Все</option>
+        <option value="overdue">Просроченные</option>
+        {Object.entries(statuses).map(([id, label]) => (
+          <option key={id} value={id}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Сортировка задач"
+        value={sort}
+        onChange={(e) => setSort(e.target.value)}
+      >
+        <option value="due_date">Срок</option>
+        <option value="created_at">Создание</option>
+        <option value="title">Название</option>
+      </select>
+      <button onClick={() => setDirection(-direction)}>
+        Порядок {direction === 1 ? "↑" : "↓"}
+      </button>
+      <button onClick={() => setView(view === "list" ? "board" : "list")}>
+        {view === "list" ? "Канбан" : "Список"}
+      </button>
+      {!visible.length && <p>Нет задач по выбранным условиям</p>}
+      {view === "list" ? (
+        visible.slice(page * 20, page * 20 + 20).map(card)
+      ) : (
+        <div className="m1-grid">
+          {Object.entries(statuses).map(([status, label]) => (
+            <div key={status}>
+              <h3>{label}</h3>
+              {visible.filter((t) => t.status === status).map(card)}
+            </div>
+          ))}
+        </div>
+      )}
+      {view === "list" && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700 }}>Канбан задач</h2>
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            Автоматически извлеченные из чатов и личные задачи
-          </p>
-        </div>
-        <button
-          className="btn-primary-action"
-          onClick={() => setShowModal(true)}
-          style={{ display: "flex", alignItems: "center", gap: 6 }}
-        >
-          <Plus size={16} />
-          <span>Новая задача</span>
-        </button>
-      </div>
-
-      {/* Conflicts Banner if any */}
-      {conflicts.length > 0 && (
-        <div
-          style={{
-            background: "#fef2f2",
-            border: "1px solid #fecaca",
-            borderRadius: "var(--radius-md)",
-            padding: "12px 16px",
-            marginBottom: 20,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            color: "#991b1b",
-            fontSize: 13,
-          }}
-        >
-          <AlertTriangle size={18} color="var(--danger)" />
-          <div>
-            Обнаружено <b>{conflicts.length} расхождений</b> в файлах памяти. Ваши изменения сохранены в оригинальных файлах, версии приложения сохранены рядом в <code>conflicts/</code>.
-          </div>
+          <button disabled={!page} onClick={() => setPage(page - 1)}>
+            Назад
+          </button>
+          <span>
+            Страница {page + 1} · Всего {visible.length}
+          </span>
+          <button
+            disabled={(page + 1) * 20 >= visible.length}
+            onClick={() => setPage(page + 1)}
+          >
+            Далее
+          </button>
         </div>
       )}
-
-      {/* 4 Kanban Columns */}
-      <div className="kanban-board-grid">
-        {columns.map((col) => {
-          const colTasks = tasks.filter((t) => t.status === col.status);
-          return (
-            <div key={col.status} className="kanban-column">
-              <div className="kanban-column-header">
-                <span style={{ color: col.color }}>{col.title}</span>
-                <span className="kanban-counter-badge">{colTasks.length}</span>
-              </div>
-
-              {colTasks.length === 0 ? (
-                <div style={{ fontSize: 12, color: "var(--text-light)", textAlign: "center", padding: "30px 0" }}>
-                  Нет задач
-                </div>
-              ) : (
-                colTasks.map((t) => (
-                  <div key={t.id} className="kanban-task-card">
-                    <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 6 }}>{t.title}</div>
-                    {t.due_date && (
-                      <div
-                        style={{
-                          fontSize: 11.5,
-                          color: "var(--text-muted)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          marginBottom: 8,
-                        }}
-                      >
-                        <Clock size={12} />
-                        <span>До {t.due_date.slice(0, 10)}</span>
-                      </div>
-                    )}
-
-                    {/* Transition action buttons */}
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
-                      {col.status !== "todo" && (
-                        <button
-                          className="btn-secondary-action"
-                          style={{ padding: "3px 8px", fontSize: 11 }}
-                          onClick={() => onUpdateStatus(t.id, "todo")}
-                        >
-                          В план
-                        </button>
-                      )}
-                      {col.status !== "in_progress" && (
-                        <button
-                          className="btn-secondary-action"
-                          style={{ padding: "3px 8px", fontSize: 11 }}
-                          onClick={() => onUpdateStatus(t.id, "in_progress")}
-                        >
-                          В работу
-                        </button>
-                      )}
-                      {col.status !== "waiting_reply" && (
-                        <button
-                          className="btn-secondary-action"
-                          style={{ padding: "3px 8px", fontSize: 11 }}
-                          onClick={() => onUpdateStatus(t.id, "waiting_reply")}
-                        >
-                          Жду ответа
-                        </button>
-                      )}
-                      {col.status !== "done" && (
-                        <button
-                          className="btn-secondary-action"
-                          style={{ padding: "3px 8px", fontSize: 11, color: "var(--success)" }}
-                          onClick={() => onUpdateStatus(t.id, "done")}
-                        >
-                          Готово
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content-box" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700 }}>Создать задачу</h3>
-              <button
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
-                onClick={() => setShowModal(false)}
+      {editing && (
+        <div role="dialog" aria-label="Редактор задачи" className="card-box">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (
+                await run(editing.id ? "tasks:update" : "tasks:create", {
+                  ...editing,
+                  due_date: editing.due_date || null,
+                })
+              )
+                setEditing(null);
+            }}
+          >
+            <label>
+              Название
+              <input
+                className="form-input-field"
+                required
+                value={editing.title}
+                onChange={(e) =>
+                  setEditing({ ...editing, title: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Описание
+              <textarea
+                className="form-input-field"
+                value={editing.description || ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, description: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Срок
+              <input
+                className="form-input-field"
+                type="date"
+                value={editing.due_date || ""}
+                onChange={(e) =>
+                  setEditing({ ...editing, due_date: e.target.value })
+                }
+              />
+            </label>
+            <label>
+              Статус
+              <select
+                value={editing.status}
+                onChange={(e) =>
+                  setEditing({ ...editing, status: e.target.value })
+                }
               >
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreate}>
-              <div className="form-group-block">
-                <label className="form-label-title">Название задачи</label>
-                <input
-                  type="text"
-                  className="form-input-field"
-                  placeholder="Что нужно сделать?"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div className="form-group-block">
-                <label className="form-label-title">Описание или контекст</label>
-                <textarea
-                  className="form-input-field"
-                  rows={3}
-                  placeholder="Детали или ссылка на обсуждение..."
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group-block">
-                <label className="form-label-title">Срок выполнения</label>
-                <input
-                  type="date"
-                  className="form-input-field"
-                  value={due}
-                  onChange={(e) => setDue(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 22 }}>
-                <button type="button" className="btn-secondary-action" onClick={() => setShowModal(false)}>
-                  Отмена
-                </button>
-                <button type="submit" className="btn-primary-action">
-                  Создать
-                </button>
-              </div>
-            </form>
-          </div>
+                {Object.entries(statuses).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button disabled={busy || !editing.title.trim()}>
+              Сохранить задачу
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm("Закрыть редактор без сохранения?"))
+                  setEditing(null);
+              }}
+            >
+              Закрыть
+            </button>
+          </form>
         </div>
       )}
-    </div>
+    </section>
   );
 };

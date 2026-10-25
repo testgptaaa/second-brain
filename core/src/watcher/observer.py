@@ -1,4 +1,5 @@
 """Watchdog-based filesystem watcher with debouncing, stabilization, and hash validation."""
+
 from __future__ import annotations
 
 import os
@@ -13,10 +14,19 @@ from memory.models import MemoryDocument, compute_body_hash
 from memory.parser import parse_markdown_with_frontmatter
 from memory.storage import MemoryStorage
 from index.indexer import Indexer
+from diagnostics import record
 
 
 class StorageFileEventHandler(FileSystemEventHandler):
-    IGNORED_PATTERNS = (".tmp", ".swp", ".crdownload", ".part", "~$", ".DS_Store", "Thumbs.db")
+    IGNORED_PATTERNS = (
+        ".tmp",
+        ".swp",
+        ".crdownload",
+        ".part",
+        "~$",
+        ".DS_Store",
+        "Thumbs.db",
+    )
 
     def __init__(
         self,
@@ -36,7 +46,9 @@ class StorageFileEventHandler(FileSystemEventHandler):
         self._running = True
 
         # Debounce worker thread
-        self._worker_thread = threading.Thread(target=self._process_pending_loop, daemon=True)
+        self._worker_thread = threading.Thread(
+            target=self._process_pending_loop, daemon=True
+        )
         self._worker_thread.start()
 
     def _is_ignored(self, path_str: str) -> bool:
@@ -48,7 +60,9 @@ class StorageFileEventHandler(FileSystemEventHandler):
         name = p.name
         if name == "README.md":
             return True
-        if name.startswith(".") or any(name.endswith(ext) for ext in self.IGNORED_PATTERNS):
+        if name.startswith(".") or any(
+            name.endswith(ext) for ext in self.IGNORED_PATTERNS
+        ):
             return True
         if any(name.startswith(pfx) for pfx in ("~$", ".")):
             return True
@@ -64,10 +78,23 @@ class StorageFileEventHandler(FileSystemEventHandler):
         if not event.is_directory and not self._is_ignored(event.src_path):
             self._queue_path(event.src_path)
 
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        if not event.is_directory and not self._is_ignored(event.src_path):
+            self.indexer.rebuild_from_storage(self.storage.root_dir)
+            if self.on_change_callback:
+                self.on_change_callback(None, event.src_path)
+
     def on_moved(self, event: FileSystemEvent) -> None:
         # Atomic saves (vim, VS Code) often write to a temp file and rename/move to destination
-        if hasattr(event, "dest_path") and not event.is_directory and not self._is_ignored(event.dest_path):
+        if (
+            hasattr(event, "dest_path")
+            and not event.is_directory
+            and not self._is_ignored(event.dest_path)
+        ):
+            self.indexer.rebuild_from_storage(self.storage.root_dir)
             self._queue_path(event.dest_path)
+            if self.on_change_callback and not self._is_ignored(event.src_path):
+                self.on_change_callback(None, event.dest_path)
 
     def _queue_path(self, path_str: str) -> None:
         with self._lock:
@@ -86,10 +113,15 @@ class StorageFileEventHandler(FileSystemEventHandler):
                         del self._pending_paths[path_str]
 
             for path_str in to_process:
-                self._handle_stabilized_file(path_str)
+                try:
+                    self._handle_stabilized_file(path_str)
+                except Exception as exc:
+                    record("watcher.failed", error_code=type(exc).__name__)
 
     def _handle_stabilized_file(self, path_str: str) -> None:
         target_path = Path(path_str).resolve()
+        if not target_path.is_relative_to(self.storage.root_dir.resolve()):
+            return
         if not target_path.exists():
             return
 
@@ -125,13 +157,14 @@ class StorageFileEventHandler(FileSystemEventHandler):
             if journal_hash == body_hash and (time.time() - journal_ts) < 10.0:
                 return
 
-        # This is an EXTERNAL EDIT!
-        # Archive prior version in .system/versions before updating index
-        self.storage._archive_previous_version(
-            doc.metadata.id,
-            doc.metadata.revision,
-            content,
-        )
+        # Archive the last indexed version, not the newly edited content.
+        snapshot = self.indexer.snapshot_path(target_path, self.storage.root_dir)
+        if snapshot.exists():
+            previous = snapshot.read_text(encoding="utf-8")
+            previous_doc = parse_markdown_with_frontmatter(previous)
+            self.storage._archive_previous_version(
+                previous_doc.metadata.id, previous_doc.metadata.revision, previous
+            )
 
         # Update index
         self.indexer.index_document(doc, target_path, self.storage.root_dir)
@@ -140,8 +173,8 @@ class StorageFileEventHandler(FileSystemEventHandler):
         if self.on_change_callback:
             try:
                 self.on_change_callback(doc, str(target_path))
-            except Exception:
-                pass
+            except Exception as exc:
+                record("watcher.callback_failed", error_code=type(exc).__name__)
 
     def stop(self) -> None:
         self._running = False

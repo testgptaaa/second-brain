@@ -26,9 +26,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSection,
   isPaused,
   onTogglePause,
-  storageUsedMb = 2450,
+  storageUsedMb = 0,
 }) => {
-  const navItems: Array<{ id: NavSection; label: string; icon: React.ReactNode }> = [
+  const navItems: Array<{
+    id: NavSection;
+    label: string;
+    icon: React.ReactNode;
+  }> = [
     { id: "chat", label: "Чат", icon: <MessageSquare size={17} /> },
     { id: "dashboard", label: "Дашборд", icon: <LayoutDashboard size={17} /> },
     { id: "tasks", label: "Задачи", icon: <CheckSquare size={17} /> },
@@ -54,16 +58,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Nav List */}
-      <nav className="sidebar-nav">
+      <nav className="sidebar-nav" aria-label="Разделы">
         {navItems.map((item) => (
-          <div
+          <button
+            type="button"
             key={item.id}
             className={`nav-link ${activeSection === item.id ? "active" : ""}`}
             onClick={() => onSelectSection(item.id)}
           >
             {item.icon}
             <span>{item.label}</span>
-          </div>
+          </button>
         ))}
       </nav>
 
@@ -72,16 +77,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="status-card">
           <div className="status-header">
             <div className={`pulse-dot ${isPaused ? "paused" : "active"}`} />
-            <span>{isPaused ? "Наблюдение на паузе" : "Наблюдение активно"}</span>
+            <span>
+              {isPaused ? "Наблюдение выключено" : "Наблюдение выключено в M1"}
+            </span>
           </div>
           <div className="status-desc">
-            {isPaused ? "Сбор контекста приостановлен" : "Собираю контекст из приложений"}
+            {isPaused
+              ? "Сбор контекста приостановлен"
+              : "Собираю контекст из приложений"}
           </div>
           <button className="btn-sidebar-pause" onClick={onTogglePause}>
             {isPaused ? (
               <>
                 <Play size={13} color="var(--primary)" />
-                <span>Возобновить</span>
+                <span>Настройки наблюдения</span>
               </>
             ) : (
               <>
@@ -92,19 +101,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Storage Bar */}
-        <div className="storage-box">
-          <div className="storage-header">
-            <span>Хранилище</span>
-            <span style={{ fontWeight: 600 }}>{storageGb} ГБ из 10 ГБ</span>
-          </div>
-          <div className="storage-bar-track">
-            <div
-              className="storage-bar-fill"
-              style={{ width: `${Math.min(100, (storageUsedMb / 10240) * 100)}%` }}
-            />
-          </div>
-        </div>
+        <p className="status-desc">
+          Память хранится локально. Захват экрана выключен в M1.
+        </p>
       </div>
     </aside>
   );

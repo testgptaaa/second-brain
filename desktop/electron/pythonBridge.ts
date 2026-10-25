@@ -1,133 +1,177 @@
 import { spawn, ChildProcess } from "child_process";
 import path from "path";
 import readline from "readline";
-import { app } from "electron";
+import { randomUUID } from "crypto";
+import { operationalLog } from "./diagnostics";
 
+type Pending = {
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
 export class PythonBridge {
   private proc: ChildProcess | null = null;
-  private memoryRoot: string;
-  private pendingRequests: Map<string, { resolve: (val: any) => void; reject: (err: any) => void }> = new Map();
-  private eventListeners: Map<string, Array<(payload: any) => void>> = new Map();
-  private isShuttingDown = false;
-
-  constructor(memoryRoot?: string) {
-    this.memoryRoot = memoryRoot || path.join(app.getPath("userData"), "Memory");
-  }
-
-  public start(): void {
-    const projectRoot = path.resolve(__dirname, "../..");
-    const pythonExe = path.join(projectRoot, ".venv/bin/python");
-    const scriptPath = path.join(projectRoot, "core/src/main.py");
-
-    console.log(`[PythonBridge] Starting backend with Python: ${pythonExe}`);
-    console.log(`[PythonBridge] Script: ${scriptPath}, Memory root: ${this.memoryRoot}`);
-
-    this.proc = spawn(pythonExe, [scriptPath, "--memory-root", this.memoryRoot], {
-      stdio: ["pipe", "pipe", "inherit"],
-      cwd: projectRoot,
+  private pending = new Map<string, Pending>();
+  private listeners = new Map<string, Set<(payload: any) => void>>();
+  private ready: Promise<void> | null = null;
+  private resolveReady?: () => void;
+  private rejectReady?: (error: Error) => void;
+  private startupTimer?: ReturnType<typeof setTimeout>;
+  public state = "stopped";
+  constructor(
+    private memoryRoot: string,
+    private options: {
+      python?: string;
+      script?: string;
+      startupMs?: number;
+      requestMs?: number;
+      logDir?: string;
+    } = {},
+  ) {}
+  start(): Promise<void> {
+    if (this.proc && this.ready) return this.ready;
+    const root = path.resolve(__dirname, "../..");
+    this.state = "starting";
+    this.log("core.starting");
+    this.ready = new Promise((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
     });
-
-    if (!this.proc.stdout || !this.proc.stdin) {
-      throw new Error("Failed to attach stdio pipes to Python core process");
-    }
-
-    const rl = readline.createInterface({
-      input: this.proc.stdout,
-      terminal: false,
-    });
-
-    rl.on("line", (line) => {
-      this.handleLine(line);
-    });
-
-    this.proc.on("exit", (code, signal) => {
-      console.log(`[PythonBridge] Python core process exited with code ${code}, signal ${signal}`);
+    this.startupTimer = setTimeout(() => {
+      this.fail(new Error("STARTUP_TIMEOUT"));
+      this.proc?.kill();
+    }, this.options.startupMs || 15000);
+    this.proc = spawn(
+      this.options.python || path.join(root, ".venv/bin/python"),
+      [
+        this.options.script || path.join(root, "core/src/main.py"),
+        "--memory-root",
+        this.memoryRoot,
+      ],
+      { cwd: root, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    readline
+      .createInterface({ input: this.proc.stdout! })
+      .on("line", (line) => {
+        let message: any;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (message.event === "engine:ready") {
+          clearTimeout(this.startupTimer);
+          this.state = "ready";
+          this.log("core.ready");
+          this.resolveReady?.();
+        }
+        if (message.event)
+          this.listeners
+            .get(message.event)
+            ?.forEach((fn) => fn(message.payload));
+        const pending = this.pending.get(message.request_id);
+        if (!pending) return;
+        clearTimeout(pending.timer);
+        this.pending.delete(message.request_id);
+        if (message.error || message.payload?.success === false)
+          pending.reject(
+            new Error(message.error || "CONFLICT: изменения не сохранены"),
+          );
+        else pending.resolve(message.payload);
+      });
+    // Python writes its own rotating operational logs. Drain stderr to avoid blocking.
+    this.proc.stderr?.on("data", () => {});
+    this.proc.stdin?.on("error", () => this.fail(new Error("PIPE_ERROR")));
+    this.proc.on("error", () => this.fail(new Error("SPAWN_ERROR")));
+    this.proc.on("exit", () => {
       this.proc = null;
-      if (!this.isShuttingDown) {
-        // reject pending requests
-        for (const [reqId, handler] of this.pendingRequests.entries()) {
-          handler.reject(new Error("Python process terminated unexpectedly"));
-        }
-        this.pendingRequests.clear();
-      }
+      this.fail(new Error("CORE_EXITED"));
     });
+    return this.ready;
   }
-
-  private handleLine(line: string): void {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-
-    try {
-      const msg = JSON.parse(trimmed);
-
-      // 1. Check if it's an asynchronous push event
-      if (msg.event) {
-        const listeners = this.eventListeners.get(msg.event) || [];
-        listeners.forEach((fn) => fn(msg.payload));
-        return;
-      }
-
-      // 2. Check if it's a request response
-      if (msg.request_id) {
-        const handler = this.pendingRequests.get(msg.request_id);
-        if (handler) {
-          this.pendingRequests.delete(msg.request_id);
-          if (msg.error) {
-            handler.reject(new Error(msg.error));
-          } else {
-            handler.resolve(msg.payload);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("[PythonBridge] Error parsing line from Python:", line, e);
+  private log(event: string, id = "", duration = 0, code?: string) {
+    if (this.options.logDir)
+      operationalLog(this.options.logDir, event, id, duration, code);
+  }
+  private fail(error: Error) {
+    this.listeners
+      .get("engine:unavailable")
+      ?.forEach((fn) => fn({ error_code: error.message }));
+    this.log("core.unavailable", "", 0, error.message);
+    clearTimeout(this.startupTimer);
+    this.state = "unavailable";
+    this.rejectReady?.(error);
+    for (const entry of this.pending.values()) {
+      clearTimeout(entry.timer);
+      entry.reject(error);
     }
+    this.pending.clear();
   }
-
-  public sendRequest<T = any>(type: string, payload: any = {}): Promise<T> {
-    return new Promise((resolve, reject) => {
-      if (!this.proc || !this.proc.stdin) {
-        return reject(new Error("Python backend process is not running"));
-      }
-
-      const requestId = `req-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      this.pendingRequests.set(requestId, { resolve, reject });
-
-      const message = {
-        version: "1.0",
-        request_id: requestId,
-        type,
-        payload,
-      };
-
-      try {
-        this.proc.stdin.write(JSON.stringify(message) + "\n");
-      } catch (err) {
-        this.pendingRequests.delete(requestId);
-        reject(err);
-      }
-    });
-  }
-
-  public on(event: string, callback: (payload: any) => void): () => void {
-    const list = this.eventListeners.get(event) || [];
-    list.push(callback);
-    this.eventListeners.set(event, list);
-
-    return () => {
-      const current = this.eventListeners.get(event) || [];
-      this.eventListeners.set(
-        event,
-        current.filter((fn) => fn !== callback)
+  async sendRequest<T = any>(type: string, payload: any = {}): Promise<T> {
+    if (!this.ready) throw new Error("CORE_NOT_STARTED");
+    await this.ready;
+    if (this.state !== "ready" || !this.proc?.stdin?.writable)
+      throw new Error("CORE_UNAVAILABLE");
+    const id = randomUUID();
+    const started = Date.now();
+    this.log("request.started", id);
+    const slow = /^(qa:|model:test|capture:)/.test(type);
+    const operation = new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => {
+          this.pending.delete(id);
+          reject(new Error("REQUEST_TIMEOUT"));
+        },
+        this.options.requestMs || (slow ? 45000 : 10000),
       );
+      this.pending.set(id, { resolve, reject, timer });
+      this.proc!.stdin!.write(
+        JSON.stringify({ version: "1.0", request_id: id, type, payload }) +
+          "\n",
+        (error) => {
+          if (error) {
+            clearTimeout(timer);
+            this.pending.delete(id);
+            reject(new Error("PIPE_ERROR"));
+          }
+        },
+      );
+    });
+    return operation.then(
+      (value) => {
+        this.log("request.completed", id, Date.now() - started);
+        return value;
+      },
+      (error) => {
+        this.log("request.failed", id, Date.now() - started, "RPC_ERROR");
+        throw error;
+      },
+    );
+  }
+  on(event: string, callback: (payload: any) => void) {
+    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
+    this.listeners.get(event)!.add(callback);
+    return () => {
+      this.listeners.get(event)?.delete(callback);
     };
   }
-
-  public shutdown(): void {
-    this.isShuttingDown = true;
-    if (this.proc) {
-      this.proc.kill("SIGTERM");
-      this.proc = null;
-    }
+  shutdown(): Promise<void> {
+    this.fail(new Error("CORE_STOPPED"));
+    const child = this.proc;
+    this.proc = null;
+    this.state = "stopped";
+    if (!child || child.exitCode !== null || child.signalCode !== null)
+      return Promise.resolve();
+    return new Promise((resolve) => {
+      const deadline = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve();
+      }, 2000);
+      child.once("exit", () => {
+        clearTimeout(deadline);
+        resolve();
+      });
+      child.kill("SIGTERM");
+    });
   }
 }

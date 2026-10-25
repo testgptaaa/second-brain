@@ -1,11 +1,5 @@
 export type NavSection =
-  | "chat"
-  | "dashboard"
-  | "tasks"
-  | "files"
-  | "history"
-  | "notes"
-  | "settings";
+  "chat" | "dashboard" | "tasks" | "files" | "history" | "notes" | "settings";
 
 export interface DocMetadata {
   id: string;
@@ -53,6 +47,10 @@ export interface DayDetail {
 }
 
 export interface TaskItem {
+  description?: string;
+  revision?: number;
+  base_hash?: string;
+  file_hash?: string;
   id: string;
   title: string;
   status: "todo" | "in_progress" | "waiting_reply" | "done" | "cancelled";
@@ -97,6 +95,7 @@ export interface QAResult {
 }
 
 export interface PolicyStatus {
+  capture_consent?: boolean;
   is_paused: boolean;
   privacy_mode: "raw" | "pseudonymize";
   analysis_mode: "direct_text" | "image_vision";
@@ -118,6 +117,11 @@ export interface SuggestionItem {
 }
 
 export interface ModelConfig {
+  has_api_key?: boolean;
+  has_nd_api_key?: boolean;
+  clear_api_key?: boolean;
+  clear_nd_api_key?: boolean;
+  credential_status?: string;
   base_url: string;
   api_key: string;
   model_name: string;

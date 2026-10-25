@@ -5,28 +5,28 @@
   --bg-sidebar: #ffffff;
   --border-color: #eaecf0;
   --border-focus: #3b82f6;
-  
+
   --text-main: #101828;
   --text-secondary: #475467;
   --text-muted: #667085;
   --text-light: #98a2b3;
-  
+
   --primary: #2563eb;
   --primary-light: #eff4fe;
   --primary-hover: #1d4ed8;
-  
+
   --success: #10b981;
   --success-light: #ecfdf5;
-  
+
   --warning: #f59e0b;
   --warning-light: #fffbeb;
-  
+
   --purple: #8b5cf6;
   --purple-light: #f5f3ff;
-  
+
   --orange: #f97316;
   --orange-light: #fff7ed;
-  
+
   --danger: #ef4444;
   --danger-light: #fef2f2;
 
@@ -36,10 +36,14 @@
   --radius-full: 9999px;
 
   --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
+  --shadow-sm:
+    0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md:
+    0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
 
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 * {
@@ -347,7 +351,7 @@ body {
   font-weight: 700;
   font-size: 13px;
   color: #7c2d12;
-  border: 1px solid rgba(0,0,0,0.06);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 /* ─── Content Area ──────────────────────────────────────────────────────── */
@@ -492,10 +496,22 @@ body {
   flex-shrink: 0;
 }
 
-.quick-card-icon.blue { background: #eff6ff; color: #2563eb; }
-.quick-card-icon.green { background: #ecfdf5; color: #10b981; }
-.quick-card-icon.purple { background: #f5f3ff; color: #8b5cf6; }
-.quick-card-icon.violet { background: #ede9fe; color: #7c3aed; }
+.quick-card-icon.blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+.quick-card-icon.green {
+  background: #ecfdf5;
+  color: #10b981;
+}
+.quick-card-icon.purple {
+  background: #f5f3ff;
+  color: #8b5cf6;
+}
+.quick-card-icon.violet {
+  background: #ede9fe;
+  color: #7c3aed;
+}
 
 .quick-card-title {
   font-size: 14px;
@@ -601,7 +617,9 @@ body {
   align-items: center;
   gap: 12px;
   box-shadow: var(--shadow-md);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .chat-input-pill-box:focus-within {
@@ -727,9 +745,18 @@ body {
   flex-shrink: 0;
 }
 
-.stat-icon-wrapper.green { background: #ecfdf5; color: #10b981; }
-.stat-icon-wrapper.purple { background: #f5f3ff; color: #8b5cf6; }
-.stat-icon-wrapper.blue { background: #eff6ff; color: #2563eb; }
+.stat-icon-wrapper.green {
+  background: #ecfdf5;
+  color: #10b981;
+}
+.stat-icon-wrapper.purple {
+  background: #f5f3ff;
+  color: #8b5cf6;
+}
+.stat-icon-wrapper.blue {
+  background: #eff6ff;
+  color: #2563eb;
+}
 
 .stat-value {
   font-size: 20px;
@@ -750,9 +777,15 @@ body {
   font-weight: 500;
 }
 
-.stat-delta.green { color: #059669; }
-.stat-delta.purple { color: #7c3aed; }
-.stat-delta.blue { color: #2563eb; }
+.stat-delta.green {
+  color: #059669;
+}
+.stat-delta.purple {
+  color: #7c3aed;
+}
+.stat-delta.blue {
+  color: #2563eb;
+}
 
 /* Activity Chart Card */
 .activity-chart-box {
@@ -790,7 +823,8 @@ body {
   min-height: 4px;
 }
 
-.hist-bar:hover, .hist-bar.highlight {
+.hist-bar:hover,
+.hist-bar.highlight {
   background: var(--primary);
 }
 
@@ -835,11 +869,26 @@ body {
   font-size: 14px;
 }
 
-.app-icon-chrome { background: #fee2e2; color: #dc2626; }
-.app-icon-excel { background: #dcfce7; color: #16a34a; }
-.app-icon-telegram { background: #e0f2fe; color: #0284c7; }
-.app-icon-word { background: #dbeafe; color: #2563eb; }
-.app-icon-other { background: #f1f5f9; color: #64748b; }
+.app-icon-chrome {
+  background: #fee2e2;
+  color: #dc2626;
+}
+.app-icon-excel {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.app-icon-telegram {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+.app-icon-word {
+  background: #dbeafe;
+  color: #2563eb;
+}
+.app-icon-other {
+  background: #f1f5f9;
+  color: #64748b;
+}
 
 .app-name-text {
   font-size: 12px;
@@ -1053,9 +1102,18 @@ body {
   flex-shrink: 0;
 }
 
-.material-icon-box.excel { background: #dcfce7; color: #16a34a; }
-.material-icon-box.word { background: #dbeafe; color: #2563eb; }
-.material-icon-box.pdf { background: #fee2e2; color: #dc2626; }
+.material-icon-box.excel {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.material-icon-box.word {
+  background: #dbeafe;
+  color: #2563eb;
+}
+.material-icon-box.pdf {
+  background: #fee2e2;
+  color: #dc2626;
+}
 
 .material-title {
   font-size: 13.5px;
@@ -1198,4 +1256,73 @@ body {
 
 .btn-secondary-action:hover {
   background: #f8fafc;
+}
+/* Shared controls and responsive layouts for the local M1 workflow. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  padding: 7px 10px;
+  margin: 3px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+label {
+  display: block;
+  margin: 10px 0;
+}
+.m1-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.m1-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #ddd;
+  flex-wrap: wrap;
+}
+[role="alert"] {
+  padding: 12px;
+  color: #991b1b;
+  background: #fef2f2;
+  overflow-wrap: anywhere;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow: auto;
+}
+[hidden] {
+  display: none !important;
+}
+.main-wrapper {
+  min-width: 0;
+}
+@media (max-width: 850px) {
+  .sidebar {
+    width: 180px;
+    min-width: 180px;
+  }
+  .content-area {
+    padding: 14px;
+  }
 }

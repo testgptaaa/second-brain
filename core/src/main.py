@@ -1,10 +1,13 @@
 """Main entrypoint for second-brain-core Python process."""
+
 from __future__ import annotations
 
 import argparse
 import json
 import os
 import signal
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
@@ -17,6 +20,8 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 load_dotenv()
 
 from ipc.handler import IPCHandler
+from diagnostics import configure
+from protocol import emit
 
 
 def main() -> None:
@@ -32,6 +37,7 @@ def main() -> None:
     memory_path = Path(args.memory_root).resolve()
     memory_path.mkdir(parents=True, exist_ok=True)
 
+    configure(memory_path / ".system" / "logs")
     handler = IPCHandler(str(memory_path))
 
     def sig_handler(sig, frame):
@@ -42,36 +48,65 @@ def main() -> None:
     signal.signal(signal.SIGTERM, sig_handler)
 
     # Signal ready to Electron
-    handler.send_event("engine:ready", {
-        "version": "1.0",
-        "memory_root": str(memory_path),
-        "pid": os.getpid(),
-    })
+    handler.send_event(
+        "engine:ready",
+        {
+            "version": "1.0",
+            "memory_root": str(memory_path),
+            "pid": os.getpid(),
+        },
+    )
 
-    # Read lines from stdin
+    # Slow network/capture work has a bounded queue, leaving pause/health responsive.
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="model-worker")
+    capacity = threading.BoundedSemaphore(2)
+
+    def execute(req):
+        try:
+            emit(handler.handle_request(req))
+        finally:
+            capacity.release()
+
+    slow = {
+        "qa:ask",
+        "model:test_connection",
+        "model:test_neuraldeep",
+        "capture:tick",
+        "capture:analyze_screenshot",
+    }
     try:
         for line in sys.stdin:
-            line = line.strip()
-            if not line:
+            if not line.strip():
                 continue
             try:
                 req = json.loads(line)
-                response = handler.handle_request(req)
-                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-                sys.stdout.flush()
-            except Exception as e:
-                err_resp = {
-                    "version": "1.0",
-                    "request_id": "",
-                    "type": "error",
-                    "payload": None,
-                    "error": f"Failed to parse or process request: {str(e)}",
-                }
-                sys.stdout.write(json.dumps(err_resp, ensure_ascii=False) + "\n")
-                sys.stdout.flush()
-    except (KeyboardInterrupt, EOFError):
-        pass
+                if not isinstance(req, dict):
+                    raise ValueError("Invalid request")
+                if req.get("type") in slow:
+                    if capacity.acquire(blocking=False):
+                        pool.submit(execute, req)
+                    else:
+                        emit(
+                            {
+                                "request_id": req.get("request_id"),
+                                "error": "BUSY: очередь заполнена",
+                                "payload": None,
+                            }
+                        )
+                else:
+                    emit(handler.handle_request(req))
+            except (ValueError, TypeError):
+                emit(
+                    {
+                        "version": "1.0",
+                        "request_id": "",
+                        "type": "error",
+                        "payload": None,
+                        "error": "INVALID_REQUEST",
+                    }
+                )
     finally:
+        pool.shutdown(wait=True, cancel_futures=True)
         handler.shutdown()
 
 

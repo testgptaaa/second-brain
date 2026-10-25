@@ -8,7 +8,13 @@
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "npm run typecheck && npm test && npm run build",
+    "test": "vitest run",
+    "test:native": "npm run build && node tests/native-smoke.mjs",
+    "format": "prettier --write src/App.tsx src/sections/*Screen.tsx src/lib electron tests",
+    "format:check": "prettier --check src/App.tsx src/sections/*Screen.tsx src/lib electron tests"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +25,9 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -26,7 +35,11 @@
     "concurrently": "^10.0.6",
     "cross-env": "^10.1.0",
     "electron": "^45.0.0",
+    "jsdom": "^30.1.3",
+    "playwright": "^1.64.1",
+    "prettier": "^3.9.10",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   }
 }

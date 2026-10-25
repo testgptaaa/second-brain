@@ -1,4 +1,5 @@
 """SQLite indexer with FTS5 and full-rebuild support from open files."""
+
 from __future__ import annotations
 
 import json
@@ -17,20 +18,145 @@ from memory.models import (
 )
 from memory.parser import parse_markdown_with_frontmatter
 
-
 RUSSIAN_STOP_WORDS = {
-    "и", "в", "во", "не", "что", "он", "на", "я", "с", "со", "как", "а", "то", "все", "она",
-    "так", "его", "но", "да", "ты", "к", "у", "же", "вы", "за", "бы", "по", "только", "ее",
-    "мне", "было", "вот", "от", "меня", "еще", "нет", "о", "об", "из", "ему", "теперь", "когда",
-    "даже", "ну", "вдруг", "ли", "если", "уже", "или", "ни", "быть", "был", "него", "до",
-    "вас", "нибудь", "опять", "уж", "вам", "ведь", "там", "потом", "себя", "ничего", "ей",
-    "может", "они", "тут", "где", "есть", "надо", "ней", "для", "мы", "тебя", "их", "чем",
-    "была", "сам", "чтоб", "без", "будто", "чего", "раз", "тоже", "себе", "под", "будет",
-    "тогда", "кто", "этот", "того", "потому", "этого", "какой", "совсем", "ним", "здесь",
-    "этом", "один", "почти", "мой", "тем", "чтобы", "нее", "сейчас", "были", "куда", "зачем",
-    "всех", "никогда", "можно", "при", "наконец", "два", "свои", "эту", "мои", "всего",
-    "какая", "исключая", "эти", "наш", "про", "нами",
-    "the", "and", "or", "is", "in", "at", "of", "a", "an", "to", "for", "on", "with",
+    "и",
+    "в",
+    "во",
+    "не",
+    "что",
+    "он",
+    "на",
+    "я",
+    "с",
+    "со",
+    "как",
+    "а",
+    "то",
+    "все",
+    "она",
+    "так",
+    "его",
+    "но",
+    "да",
+    "ты",
+    "к",
+    "у",
+    "же",
+    "вы",
+    "за",
+    "бы",
+    "по",
+    "только",
+    "ее",
+    "мне",
+    "было",
+    "вот",
+    "от",
+    "меня",
+    "еще",
+    "нет",
+    "о",
+    "об",
+    "из",
+    "ему",
+    "теперь",
+    "когда",
+    "даже",
+    "ну",
+    "вдруг",
+    "ли",
+    "если",
+    "уже",
+    "или",
+    "ни",
+    "быть",
+    "был",
+    "него",
+    "до",
+    "вас",
+    "нибудь",
+    "опять",
+    "уж",
+    "вам",
+    "ведь",
+    "там",
+    "потом",
+    "себя",
+    "ничего",
+    "ей",
+    "может",
+    "они",
+    "тут",
+    "где",
+    "есть",
+    "надо",
+    "ней",
+    "для",
+    "мы",
+    "тебя",
+    "их",
+    "чем",
+    "была",
+    "сам",
+    "чтоб",
+    "без",
+    "будто",
+    "чего",
+    "раз",
+    "тоже",
+    "себе",
+    "под",
+    "будет",
+    "тогда",
+    "кто",
+    "этот",
+    "того",
+    "потому",
+    "этого",
+    "какой",
+    "совсем",
+    "ним",
+    "здесь",
+    "этом",
+    "один",
+    "почти",
+    "мой",
+    "тем",
+    "чтобы",
+    "нее",
+    "сейчас",
+    "были",
+    "куда",
+    "зачем",
+    "всех",
+    "никогда",
+    "можно",
+    "при",
+    "наконец",
+    "два",
+    "свои",
+    "эту",
+    "мои",
+    "всего",
+    "какая",
+    "исключая",
+    "эти",
+    "наш",
+    "про",
+    "нами",
+    "the",
+    "and",
+    "or",
+    "is",
+    "in",
+    "at",
+    "of",
+    "a",
+    "an",
+    "to",
+    "for",
+    "on",
+    "with",
 }
 
 
@@ -123,7 +249,21 @@ class Indexer:
             );
             """)
 
-    def index_document(self, doc: MemoryDocument, file_path: Path, root_dir: Path) -> None:
+    @staticmethod
+    def snapshot_path(file_path, root_dir):
+        import hashlib
+
+        relative = str(file_path.resolve().relative_to(root_dir.resolve()))
+        return (
+            root_dir
+            / ".system"
+            / "latest"
+            / (hashlib.sha256(relative.encode()).hexdigest() + ".md")
+        )
+
+    def index_document(
+        self, doc: MemoryDocument, file_path: Path, root_dir: Path
+    ) -> None:
         """Insert or update a document in SQLite and FTS5."""
         rel_path = str(file_path.resolve().relative_to(root_dir.resolve()))
         stat = file_path.stat()
@@ -212,6 +352,10 @@ class Indexer:
                     ),
                 )
 
+        snapshot = self.snapshot_path(file_path, root_dir)
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_text(file_path.read_text(encoding="utf-8"), encoding="utf-8")
+
     def remove_document(self, doc_id: str) -> None:
         """Remove document from index on file deletion."""
         with self._get_connection() as conn:
@@ -245,15 +389,20 @@ class Indexer:
         query: str,
         doc_type: Optional[str] = None,
         limit: int = 20,
+        offset: int = 0,
+        sort: str = "relevance",
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Perform full-text search with ranking (FTS5 BM25)."""
         import re
+
         clean_query = query.strip()
         if not clean_query:
             return []
 
         # Split into tokens, sanitize and build prefix/term query
-        raw_words = [re.sub(r'[^\w\d_]', '', w) for w in clean_query.split()]
+        raw_words = [re.sub(r"[^\w\d_]", "", w) for w in clean_query.split()]
         raw_words = [w for w in raw_words if w]
         if not raw_words:
             return []
@@ -296,8 +445,20 @@ class Indexer:
             sql += " AND d.doc_type = ?"
             params.append(doc_type)
 
-        sql += " ORDER BY rank LIMIT ?"
-        params.append(limit)
+        if sort not in ("relevance", "updated"):
+            raise ValueError("Invalid search sort")
+        if date_from:
+            sql += " AND substr(d.created_at, 1, 10) >= ?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND substr(d.created_at, 1, 10) <= ?"
+            params.append(date_to)
+        sql += (
+            " ORDER BY "
+            + ("rank ASC" if sort == "relevance" else "d.updated_at DESC")
+            + ", d.id ASC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
 
         results = []
         with self._get_connection() as conn:
@@ -306,18 +467,9 @@ class Indexer:
                 for row in cursor.fetchall():
                     results.append(dict(row))
             except sqlite3.OperationalError:
-                # Fallback to standard LIKE if FTS syntax issue
-                fallback_sql = """
-                SELECT id, relative_path, doc_type, title, created_at, updated_at, source_id,
-                       title as snippet, 0 as rank
-                FROM documents
-                WHERE title LIKE ? OR id LIKE ?
-                LIMIT ?
-                """
-                like_term = f"%{clean_query}%"
-                cursor = conn.execute(fallback_sql, (like_term, like_term, limit))
-                for row in cursor.fetchall():
-                    results.append(dict(row))
+                # The tokenized FTS query is generated here; an operational failure
+                # signals a broken index, not permission to silently alter filters.
+                raise
 
         return results
 
@@ -327,11 +479,24 @@ class Indexer:
         """
         count = 0
         root_dir = root_dir.resolve()
+        # Remove only rows whose canonical files are gone; preserve settings/conflicts.
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT id, relative_path FROM documents").fetchall()
+        for row in rows:
+            candidate = (root_dir / row["relative_path"]).resolve()
+            if not candidate.is_relative_to(root_dir) or not candidate.is_file():
+                self.remove_document(row["id"])
         # Scan days/ and tasks/
         for md_path in root_dir.rglob("*.md"):
             # Skip .system and conflicts
+            if not md_path.resolve().is_relative_to(root_dir):
+                continue
             rel = md_path.relative_to(root_dir)
-            if ".system" in rel.parts or "conflicts" in rel.parts or rel.name == "README.md":
+            if (
+                ".system" in rel.parts
+                or "conflicts" in rel.parts
+                or rel.name == "README.md"
+            ):
                 continue
 
             try:
@@ -363,12 +528,14 @@ class Indexer:
         if status:
             sql += " WHERE status = ?"
             params.append(status)
-        sql += " ORDER BY created_at DESC"
+        sql += " ORDER BY created_at DESC, id ASC"
         with self._get_connection() as conn:
             cur = conn.execute(sql, params)
             return [dict(r) for r in cur.fetchall()]
 
     def list_conflicts(self) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
-            cur = conn.execute("SELECT * FROM conflicts ORDER BY created_at DESC")
+            cur = conn.execute(
+                "SELECT * FROM conflicts ORDER BY created_at DESC, id ASC"
+            )
             return [dict(r) for r in cur.fetchall()]

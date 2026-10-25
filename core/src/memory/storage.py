@@ -1,7 +1,10 @@
 """MemoryStorage engine implementing date-partitioned storage and conflict preservation."""
+
 from __future__ import annotations
 
 import json
+import hashlib
+import uuid
 import os
 import shutil
 import time
@@ -65,13 +68,30 @@ class MemoryStorage:
         """Get or create path for days/YYYY/MM/DD with all necessary subfolders."""
         if dt is None:
             dt = datetime.now()
-        day_path = self.days_dir / f"{dt.year:04d}" / f"{dt.month:02d}" / f"{dt.day:02d}"
-        for sub in ("episodes", "context", "notes", "sources", "requests", "attachments", "conflicts"):
+        day_path = (
+            self.days_dir / f"{dt.year:04d}" / f"{dt.month:02d}" / f"{dt.day:02d}"
+        )
+        for sub in (
+            "episodes",
+            "context",
+            "notes",
+            "sources",
+            "requests",
+            "attachments",
+            "conflicts",
+        ):
             (day_path / sub).mkdir(parents=True, exist_ok=True)
         return day_path
 
-    def _archive_previous_version(self, doc_id: str, revision: int, content: str) -> Path:
+    def _archive_previous_version(
+        self, doc_id: str, revision: int, content: str
+    ) -> Path:
         """Save previous version in .system/versions/<id>/<revision>-<timestamp>.md"""
+        if not doc_id or any(
+            c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+            for c in doc_id
+        ):
+            raise ValueError("Invalid document ID")
         target_dir = self.versions_dir / doc_id
         target_dir.mkdir(parents=True, exist_ok=True)
         ts_str = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -86,6 +106,7 @@ class MemoryStorage:
         target_path: Path,
         expected_base_hash: Optional[str] = None,
         base_revision: int = 1,
+        expected_file_hash: Optional[str] = None,
     ) -> Tuple[bool, Optional[ConflictRecord]]:
         """Atomically writes document with conflict detection.
         Returns:
@@ -94,6 +115,8 @@ class MemoryStorage:
         to conflicts/ as specified in EXTERNAL_EDITS.md.
         """
         target_path = target_path.resolve()
+        if not target_path.is_relative_to(self.root_dir.resolve()):
+            raise ValueError("Path outside memory root")
         target_dir = target_path.parent
         target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,13 +126,22 @@ class MemoryStorage:
             current_doc = parse_markdown_with_frontmatter(current_raw)
             current_disk_hash = current_doc.body_hash
 
-            if expected_base_hash is not None and current_disk_hash != expected_base_hash:
+            if (
+                expected_base_hash is not None
+                and current_disk_hash != expected_base_hash
+            ) or (
+                expected_file_hash is not None
+                and hashlib.sha256(current_raw.encode()).hexdigest()
+                != expected_file_hash
+            ):
                 # CONFLICT DETECTED!
                 now_str = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
                 conflicts_dir = target_dir / "conflicts"
                 conflicts_dir.mkdir(parents=True, exist_ok=True)
 
-                conflict_md_name = f"{target_path.stem}.app-{now_str}{target_path.suffix}"
+                conflict_md_name = (
+                    f"{target_path.stem}.app-{now_str}{target_path.suffix}"
+                )
                 conflict_json_name = f"{target_path.stem}.app-{now_str}.json"
                 conflict_md_path = conflicts_dir / conflict_md_name
                 conflict_json_path = conflicts_dir / conflict_json_name
@@ -138,7 +170,9 @@ class MemoryStorage:
                 return False, conflict_record
 
             # Archive existing version before overwrite
-            self._archive_previous_version(doc.metadata.id, doc.metadata.revision, current_raw)
+            self._archive_previous_version(
+                doc.metadata.id, doc.metadata.revision, current_raw
+            )
             doc.metadata.revision += 1
 
         # 2. Write to temp file and atomically replace
@@ -161,6 +195,9 @@ class MemoryStorage:
         target_path = Path(path)
         if not target_path.is_absolute():
             target_path = self.root_dir / target_path
+        target_path = target_path.resolve()
+        if not target_path.is_relative_to(self.root_dir):
+            raise ValueError("Path outside memory root")
         if not target_path.exists():
             return None
 
@@ -188,7 +225,7 @@ class MemoryStorage:
         notes_dir = day_dir / "notes"
 
         if not doc_id:
-            doc_id = f"note-{int(time.time() * 1000)}"
+            doc_id = f"note-{uuid.uuid4().hex}"
             time_prefix = dt.strftime("%H-%M-%S")
             filename = f"{time_prefix}_{doc_id}.md"
             target_path = notes_dir / filename
@@ -196,7 +233,13 @@ class MemoryStorage:
             revision = 1
         else:
             # Look for existing note
-            matches = list(notes_dir.glob(f"*_{doc_id}.md"))
+            if not doc_id or any(
+                c
+                not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+                for c in doc_id
+            ):
+                raise ValueError("Invalid note ID")
+            matches = list(self.days_dir.glob(f"*/*/*/notes/*_{doc_id}.md"))
             if matches:
                 target_path = matches[0]
                 existing = self.read_document(target_path)
@@ -213,7 +256,11 @@ class MemoryStorage:
             id=doc_id,
             title=title,
             doc_type=DocumentType.NOTE,
-            created_at=dt.isoformat(),
+            created_at=(
+                existing.metadata.created_at
+                if doc_id and "existing" in locals() and existing
+                else dt.isoformat()
+            ),
             updated_at=datetime.now().isoformat(),
             revision=revision,
             tags=tags or [],
@@ -244,7 +291,7 @@ class MemoryStorage:
     ) -> Tuple[MemoryDocument, Optional[ConflictRecord]]:
         """Create or update a task in tasks/."""
         if not task_id:
-            task_id = f"task-{int(time.time() * 1000)}"
+            task_id = f"task-{uuid.uuid4().hex}"
             target_path = self.tasks_dir / f"{task_id}.md"
             base_hash = None
             revision = 1
@@ -326,7 +373,9 @@ class MemoryStorage:
         doc.relative_path = str(target_path.relative_to(self.root_dir))
         return doc
 
-    def save_source_record(self, source: SourceRecord, dt: Optional[datetime] = None) -> Path:
+    def save_source_record(
+        self, source: SourceRecord, dt: Optional[datetime] = None
+    ) -> Path:
         """Save source metadata in days/YYYY/MM/DD/sources/obs-<id>.json"""
         if dt is None:
             dt = datetime.now()
@@ -336,7 +385,9 @@ class MemoryStorage:
         file_path.write_text(source.model_dump_json(indent=2), encoding="utf-8")
         return file_path
 
-    def save_model_request_record(self, req: ModelRequestRecord, dt: Optional[datetime] = None) -> Path:
+    def save_model_request_record(
+        self, req: ModelRequestRecord, dt: Optional[datetime] = None
+    ) -> Path:
         """Save model request audit log in days/YYYY/MM/DD/requests/req-<id>.json.
         F06 requirement: SENSITIVE SECRETS/TOKENS ARE NEVER RECORDED HERE.
         """

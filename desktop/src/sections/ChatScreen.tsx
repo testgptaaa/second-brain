@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Brain,
   Search,
@@ -16,6 +16,9 @@ import {
 import { QAResult } from "../types/api";
 
 interface ChatScreenProps {
+  initialPrompt?: string;
+  promptSignal?: number;
+  onOpenSource?: (path: string) => void;
   onAsk: (question: string) => Promise<QAResult>;
 }
 
@@ -27,8 +30,16 @@ interface MessageItem {
   timestamp: string;
 }
 
-export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
-  const [inputVal, setInputVal] = useState("");
+export const ChatScreen: React.FC<ChatScreenProps> = ({
+  onAsk,
+  initialPrompt = "",
+  promptSignal,
+  onOpenSource,
+}) => {
+  const [inputVal, setInputVal] = useState(initialPrompt);
+  useEffect(() => {
+    setInputVal(initialPrompt);
+  }, [initialPrompt, promptSignal]);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -93,6 +104,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
       };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (e: any) {
+      setInputVal(text);
       const errMsg: MessageItem = {
         id: `err-${Date.now()}`,
         sender: "assistant",
@@ -116,8 +128,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
 
           <h2 className="chat-hero-heading">Чем я могу помочь, Андрей? 👋</h2>
           <p className="chat-hero-sub">
-            Я помню, над чем вы работали, и помогу найти нужную информацию, продолжить задачи и
-            подготовиться к встречам.
+            Я помню, над чем вы работали, и помогу найти нужную информацию,
+            продолжить задачи и подготовиться к встречам.
           </p>
 
           {/* 4 Cards Grid */}
@@ -129,7 +141,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
                 onClick={() => handleSend(card.prompt)}
               >
                 <div className="quick-card-left">
-                  <div className={`quick-card-icon ${card.colorClass}`}>{card.icon}</div>
+                  <div className={`quick-card-icon ${card.colorClass}`}>
+                    {card.icon}
+                  </div>
                   <div>
                     <div className="quick-card-title">{card.title}</div>
                     <div className="quick-card-desc">{card.desc}</div>
@@ -147,7 +161,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
             m.sender === "user" ? (
               <div key={m.id} className="chat-bubble-user">
                 <div>{m.text}</div>
-                <div style={{ fontSize: 11, opacity: 0.8, textAlign: "right", marginTop: 4 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.8,
+                    textAlign: "right",
+                    marginTop: 4,
+                  }}
+                >
                   {m.timestamp}
                 </div>
               </div>
@@ -156,7 +177,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
                 <div className="chat-ai-header">
                   <Sparkles size={16} />
                   <span>Второй Мозг</span>
-                  <span style={{ fontSize: 11, color: "var(--text-light)", fontWeight: 400, marginLeft: "auto" }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-light)",
+                      fontWeight: 400,
+                      marginLeft: "auto",
+                    }}
+                  >
                     {m.timestamp}
                   </span>
                 </div>
@@ -175,23 +203,40 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
                         </div>
                         {src.snippet && (
                           <div
-                            style={{ color: "var(--text-secondary)", marginTop: 2 }}
-                            dangerouslySetInnerHTML={{ __html: src.snippet }}
+                            style={{
+                              color: "var(--text-secondary)",
+                              marginTop: 2,
+                            }}
+                            children={src.snippet?.replace(/<\/?b>/g, "")}
                           />
                         )}
-                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                          {src.relative_path}
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-muted)",
+                            marginTop: 2,
+                          }}
+                        >
+                          <button
+                            onClick={() => onOpenSource?.(src.relative_path)}
+                          >
+                            Открыть {src.relative_path}
+                          </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            )
+            ),
           )}
           {loading && (
-            <div className="chat-bubble-ai" style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
-              Ассистент анализирует рабочую память и готовит ответ с источниками...
+            <div
+              className="chat-bubble-ai"
+              style={{ color: "var(--text-muted)", fontStyle: "italic" }}
+            >
+              Ассистент анализирует рабочую память и готовит ответ с
+              источниками...
             </div>
           )}
         </div>
@@ -200,7 +245,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
       {/* Floating Bottom Prompt Bar */}
       <div className="chat-bottom-input-wrap">
         <div className="chat-input-pill-box">
-          <button className="chat-clip-btn" title="Прикрепить файл">
+          <button
+            className="chat-clip-btn"
+            disabled
+            title="Импорт файлов появится в M3"
+            aria-label="Импорт файлов пока недоступен"
+          >
             <Paperclip size={18} />
           </button>
           <input
@@ -217,22 +267,38 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ onAsk }) => {
             }}
           />
           <span className="chat-shortcut-hint">⌘ + Enter</span>
-          <button className="chat-send-btn" onClick={() => handleSend()}>
+          <button
+            className="chat-send-btn"
+            aria-label="Отправить вопрос"
+            disabled={loading || !inputVal.trim()}
+            onClick={() => handleSend()}
+          >
             <ArrowRight size={17} />
           </button>
         </div>
 
         {/* Action chips below input from screenshot */}
         <div className="chat-chips-row">
-          <button className="chat-chip" onClick={() => handleSend("Найти в файлах последние изменения")}>
+          <button
+            className="chat-chip"
+            onClick={() => handleSend("Найти в файлах последние изменения")}
+          >
             <FileText size={13} color="var(--primary)" />
             <span>Найти в файлах</span>
           </button>
-          <button className="chat-chip" onClick={() => handleSend("На чём я остановился? Продолжить задачу")}>
+          <button
+            className="chat-chip"
+            onClick={() =>
+              handleSend("На чём я остановился? Продолжить задачу")
+            }
+          >
             <Clock size={13} color="var(--primary)" />
             <span>Продолжить задачу</span>
           </button>
-          <button className="chat-chip" onClick={() => handleSend("Создать план на оставшуюся часть дня")}>
+          <button
+            className="chat-chip"
+            onClick={() => handleSend("Создать план на оставшуюся часть дня")}
+          >
             <Sparkles size={13} color="var(--primary)" />
             <span>Создать план</span>
           </button>

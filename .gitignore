@@ -66,3 +66,7 @@ temp/
 *.log
 *.tmp
 *.zip
+
+# Renderer source utilities are not Python build artifacts.
+!desktop/src/lib/
+!desktop/src/lib/**

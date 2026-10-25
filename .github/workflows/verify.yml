@@ -1,0 +1,29 @@
+name: Verify
+on: [push, pull_request]
+jobs:
+  core-and-build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -r core/requirements.txt
+      - run: .venv/bin/python -m pytest core/tests -q
+      - run: npm ci
+        working-directory: desktop
+      - run: npm run verify
+        working-directory: desktop
+      - run: node node_modules/electron/install.js
+        if: runner.os == 'macOS'
+        working-directory: desktop
+      - run: npm run test:native
+        if: runner.os == 'macOS'
+        working-directory: desktop

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from "electron";
 import path from "path";
+import fs from "fs";
 import { PythonBridge } from "./pythonBridge";
 
 let mainWindow: BrowserWindow | null = null;
@@ -22,14 +23,34 @@ async function createWindow() {
     },
     titleBarStyle: "hiddenInset",
     backgroundColor: "#0f172a",
+    show: false, // Show once ready-to-show to prevent flicker
   });
 
-  const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
-  if (isDev) {
-    mainWindow.loadURL("http://localhost:5173");
+  const distIndexPath = path.join(__dirname, "../dist/index.html");
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Electron] Failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
+    if (fs.existsSync(distIndexPath) && !validatedURL.includes("index.html")) {
+      console.log(`[Electron] Falling back to local file: ${distIndexPath}`);
+      mainWindow?.loadFile(distIndexPath);
+    }
+  });
+
+  if (devServerUrl) {
+    console.log(`[Electron] Loading from Vite dev server: ${devServerUrl}`);
+    mainWindow.loadURL(devServerUrl);
+  } else if (fs.existsSync(distIndexPath)) {
+    console.log(`[Electron] Loading from built bundle: ${distIndexPath}`);
+    mainWindow.loadFile(distIndexPath);
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    console.log("[Electron] Dist not found, attempting http://localhost:5173");
+    mainWindow.loadURL("http://localhost:5173");
   }
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -79,14 +100,20 @@ function updateTrayMenu() {
   ]);
 
   tray.setToolTip(isPaused ? "Второй мозг (на паузе)" : "Второй мозг (активен)");
+  if (process.platform === "darwin") {
+    tray.setTitle(isPaused ? "⏸️ Мозг" : "🟢 Мозг");
+  }
   tray.setContextMenu(contextMenu);
 }
 
 function setupTray() {
-  // Create simple 16x16 icon
-  const icon = nativeImage.createEmpty();
-  tray = new Tray(icon);
-  updateTrayMenu();
+  try {
+    const icon = nativeImage.createEmpty();
+    tray = new Tray(icon);
+    updateTrayMenu();
+  } catch (e) {
+    console.warn("[Electron] Tray initialization error:", e);
+  }
 }
 
 app.whenReady().then(async () => {

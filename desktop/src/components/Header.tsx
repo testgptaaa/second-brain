@@ -60,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const { title, subtitle } = getTitles();
-  const modelName = modelConfig?.model_name || "local-model";
+  const modelName = modelConfig?.text_model || modelConfig?.model_name || "gpt-5.6-luna";
 
   return (
     <header className="topbar">

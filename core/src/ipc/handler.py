@@ -354,18 +354,47 @@ class IPCHandler:
         return {
             "base_url": self.gateway.base_url,
             "api_key": "***" if self.gateway.api_key else "",
-            "model_name": self.gateway.model_name,
+            "text_model": self.gateway.text_model,
+            "vision_model": self.gateway.vision_model,
+            "model_name": self.gateway.text_model,
+            "nd_endpoint": self.gateway.nd_endpoint,
+            "nd_api_key": "***" if self.gateway.nd_api_key else "",
         }
 
     def cmd_model_update_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        base_url = payload.get("base_url", "http://localhost:1234/v1")
+        base_url = payload.get("base_url", "https://api.sd1.su/v1")
         api_key = payload.get("api_key", "")
-        model_name = payload.get("model_name", "local-model")
-        self.gateway.update_config(base_url, api_key, model_name)
+        text_model = payload.get("text_model") or payload.get("model_name", "gpt-5.6-luna")
+        vision_model = payload.get("vision_model", "gemini-3-flash")
+        nd_endpoint = payload.get("nd_endpoint")
+        nd_api_key = payload.get("nd_api_key")
+
+        self.gateway.update_config(
+            base_url=base_url,
+            api_key=api_key,
+            text_model=text_model,
+            vision_model=vision_model,
+            nd_endpoint=nd_endpoint,
+            nd_api_key=nd_api_key,
+        )
         return {"success": True}
 
     def cmd_model_test_connection(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return self.gateway.test_connection()
+        model = payload.get("model")
+        return self.gateway.test_connection(model=model)
+
+    def cmd_model_test_neuraldeep(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return self.gateway.test_neuraldeep_connection()
+
+    def cmd_capture_analyze_screenshot(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        shot_path_str = payload.get("path")
+        if not shot_path_str:
+            return {"ok": False, "error": "Path to screenshot required"}
+        shot_path = Path(shot_path_str)
+        if not shot_path.is_absolute():
+            shot_path = self.storage.root_dir / shot_path_str
+        prompt = payload.get("prompt")
+        return self.gateway.analyze_screenshot(shot_path, custom_prompt=prompt)
 
     def cmd_suggestions_list(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         # Generate suggestions from current context

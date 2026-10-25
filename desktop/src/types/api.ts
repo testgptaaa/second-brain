@@ -121,6 +121,10 @@ export interface ModelConfig {
   base_url: string;
   api_key: string;
   model_name: string;
+  text_model?: string;
+  vision_model?: string;
+  nd_endpoint?: string;
+  nd_api_key?: string;
 }
 
 export interface SecondBrainAPI {

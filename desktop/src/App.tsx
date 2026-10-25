@@ -126,8 +126,12 @@ export const App: React.FC = () => {
     setModelConfig(cfg);
   };
 
-  const handleTestModel = async () => {
-    return await send("model:test_connection");
+  const handleTestModel = async (model?: string) => {
+    return await send("model:test_connection", { model });
+  };
+
+  const handleTestNeuralDeep = async () => {
+    return await send("model:test_neuraldeep");
   };
 
   const handleAddExclusion = async (type: "app" | "domain", value: string) => {
@@ -231,6 +235,7 @@ export const App: React.FC = () => {
               modelConfig={modelConfig}
               onUpdateModelConfig={handleUpdateModel}
               onTestModelConnection={handleTestModel}
+              onTestNeuralDeep={handleTestNeuralDeep}
               onAddExclusion={handleAddExclusion}
               onRemoveExclusion={handleRemoveExclusion}
               onSetPrivacyMode={handleSetPrivacy}

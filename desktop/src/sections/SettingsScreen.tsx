@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   Cpu,
+  Eye,
   Shield,
   RefreshCw,
   CheckCircle2,
@@ -8,6 +9,9 @@ import {
   Plus,
   X,
   Lock,
+  Zap,
+  Clock,
+  Trash2,
 } from "lucide-react";
 import { PolicyStatus, ModelConfig } from "../types/api";
 
@@ -15,7 +19,8 @@ interface SettingsScreenProps {
   policy: PolicyStatus | null;
   modelConfig: ModelConfig | null;
   onUpdateModelConfig: (cfg: ModelConfig) => Promise<void>;
-  onTestModelConnection: () => Promise<any>;
+  onTestModelConnection: (model?: string) => Promise<any>;
+  onTestNeuralDeep?: () => Promise<any>;
   onAddExclusion: (type: "app" | "domain", value: string) => Promise<void>;
   onRemoveExclusion: (type: "app" | "domain", value: string) => Promise<void>;
   onSetPrivacyMode: (mode: "raw" | "pseudonymize") => Promise<void>;
@@ -30,6 +35,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   modelConfig,
   onUpdateModelConfig,
   onTestModelConnection,
+  onTestNeuralDeep,
   onAddExclusion,
   onRemoveExclusion,
   onSetPrivacyMode,
@@ -38,12 +44,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onUpdateCaptureInterval,
   onCleanSnapshots,
 }) => {
-  const [baseUrl, setBaseUrl] = useState(modelConfig?.base_url || "http://localhost:1234/v1");
+  const [baseUrl, setBaseUrl] = useState(modelConfig?.base_url || "https://api.sd1.su/v1");
   const [apiKey, setApiKey] = useState(modelConfig?.api_key || "");
-  const [modelName, setModelName] = useState(modelConfig?.model_name || "local-model");
+  const [textModel, setTextModel] = useState(modelConfig?.text_model || modelConfig?.model_name || "gpt-5.6-luna");
+  const [visionModel, setVisionModel] = useState(modelConfig?.vision_model || "gemini-3-flash");
+
+  const [ndEndpoint, setNdEndpoint] = useState(modelConfig?.nd_endpoint || "https://api.neuraldeep.ru/v1");
+  const [ndApiKey, setNdApiKey] = useState(modelConfig?.nd_api_key || "");
+
   const [intervalSec, setIntervalSec] = useState<number>(captureInterval);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testingText, setTestingText] = useState(false);
+  const [testingVision, setTestingVision] = useState(false);
+  const [testingNd, setTestingNd] = useState(false);
+
+  const [textTestResult, setTextTestResult] = useState<any>(null);
+  const [visionTestResult, setVisionTestResult] = useState<any>(null);
+  const [ndTestResult, setNdTestResult] = useState<any>(null);
+
   const [newApp, setNewApp] = useState("");
   const [newDomain, setNewDomain] = useState("");
   const [reindexing, setReindexing] = useState(false);
@@ -53,20 +70,55 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const handleSaveModel = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onUpdateModelConfig({ base_url: baseUrl, api_key: apiKey, model_name: modelName });
-    alert("Настройки модели успешно сохранены!");
+    await onUpdateModelConfig({
+      base_url: baseUrl,
+      api_key: apiKey,
+      model_name: textModel,
+      text_model: textModel,
+      vision_model: visionModel,
+      nd_endpoint: ndEndpoint,
+      nd_api_key: ndApiKey,
+    });
+    alert("Параметры моделей и NeuralDeep успешно сохранены!");
   };
 
-  const handleTest = async () => {
-    setTesting(true);
-    setTestResult(null);
+  const handleTestTextModel = async () => {
+    setTestingText(true);
+    setTextTestResult(null);
     try {
-      const res = await onTestModelConnection();
-      setTestResult(res);
+      const res = await onTestModelConnection(textModel);
+      setTextTestResult(res);
     } catch (e: any) {
-      setTestResult({ ok: false, error: e.message || String(e) });
+      setTextTestResult({ ok: false, error: e.message || String(e) });
     } finally {
-      setTesting(false);
+      setTestingText(false);
+    }
+  };
+
+  const handleTestVisionModel = async () => {
+    setTestingVision(true);
+    setVisionTestResult(null);
+    try {
+      const res = await onTestModelConnection(visionModel);
+      setVisionTestResult(res);
+    } catch (e: any) {
+      setVisionTestResult({ ok: false, error: e.message || String(e) });
+    } finally {
+      setTestingVision(false);
+    }
+  };
+
+  const handleTestNeuralDeepConnection = async () => {
+    if (!onTestNeuralDeep) return;
+    setTestingNd(true);
+    setNdTestResult(null);
+    try {
+      const res = await onTestNeuralDeep();
+      setNdTestResult(res);
+    } catch (e: any) {
+      setNdTestResult({ ok: false, error: e.message || String(e) });
+    } finally {
+      setTestingNd(false);
     }
   };
 
@@ -84,104 +136,336 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      {/* Block 1: Model Gateway */}
+    <div style={{ maxWidth: 840, paddingBottom: 60 }}>
+      {/* Block 1: LLM Models Configuration */}
       <div className="card-box" style={{ marginBottom: 20 }}>
         <div className="card-title-row">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Cpu size={18} color="var(--primary)" />
-            <span className="card-heading">Подключение модели (OpenAI API / LM Studio)</span>
+            <span className="card-heading">Шлюз моделей LLM (api.sd1.su / OpenAI)</span>
           </div>
         </div>
 
         <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-          Для локальной модели запустите LM Studio и укажите <code>http://localhost:1234/v1</code>. Ключ API для LM Studio не требуется.
+          Интеграция с моделями ИИ: для текстового анализа и ответов на вопросы используется <b>GPT (gpt-5.6-luna)</b>, для визуального распознавания снимков экрана — <b>Gemini (gemini-3-flash)</b>.
         </p>
 
         <form onSubmit={handleSaveModel}>
           <div className="form-group-block">
-            <label className="form-label-title">Base URL (Адрес эндпоинта)</label>
+            <label className="form-label-title">API Base URL</label>
             <input
               type="text"
               className="form-input-field"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="http://localhost:1234/v1"
+              placeholder="https://api.sd1.su/v1"
               required
             />
           </div>
 
           <div className="form-group-block">
-            <label className="form-label-title">Имя модели</label>
-            <input
-              type="text"
-              className="form-input-field"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="local-model или gpt-4o"
-              required
-            />
-          </div>
-
-          <div className="form-group-block">
-            <label className="form-label-title">Ключ API (необязательно для локальных серверов)</label>
+            <label className="form-label-title">Ключ API (Authorization Bearer)</label>
             <input
               type="password"
               className="form-input-field"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
+              placeholder="sd-bcf14e37..."
             />
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+          {/* Model Row: Text + Vision */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div className="form-group-block">
+              <label className="form-label-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Zap size={14} color="var(--primary)" />
+                <span>Текстовая модель (Чат и рассуждения)</span>
+              </label>
+              <select
+                className="form-input-field"
+                value={textModel}
+                onChange={(e) => setTextModel(e.target.value)}
+              >
+                <option value="gpt-5.6-luna">gpt-5.6-luna (Основная)</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-5-mini">gpt-5-mini</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              </select>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                Используется для синтеза ответов по найденным источникам.
+              </div>
+            </div>
+
+            <div className="form-group-block">
+              <label className="form-label-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <Eye size={14} color="var(--accent)" />
+                <span>Модель зрения (Анализ снимков экрана)</span>
+              </label>
+              <select
+                className="form-input-field"
+                value={visionModel}
+                onChange={(e) => setVisionModel(e.target.value)}
+              >
+                <option value="gemini-3-flash">gemini-3-flash (Gemini 3 Flash — Основная)</option>
+                <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite</option>
+                <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+              </select>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                Мультимодальный разбор скриншотов окон и документов.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
             <button type="submit" className="btn-primary-action">
               Сохранить параметры
             </button>
             <button
               type="button"
               className="btn-secondary-action"
-              onClick={handleTest}
-              disabled={testing}
+              onClick={handleTestTextModel}
+              disabled={testingText}
             >
-              {testing ? "Тестирую..." : "Тест соединения (Пинг)"}
+              {testingText ? "Проверка..." : `Тест ${textModel} (Пинг)`}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary-action"
+              onClick={handleTestVisionModel}
+              disabled={testingVision}
+            >
+              {testingVision ? "Проверка..." : `Тест ${visionModel} (Пинг)`}
             </button>
           </div>
         </form>
 
-        {testResult && (
+        {textTestResult && (
           <div
             style={{
               marginTop: 14,
               padding: "10px 14px",
               borderRadius: "var(--radius-sm)",
               fontSize: 13,
-              background: testResult.ok ? "#ecfdf5" : "#fef2f2",
-              border: `1px solid ${testResult.ok ? "#a7f3d0" : "#fecaca"}`,
-              color: testResult.ok ? "#065f46" : "#991b1b",
+              background: textTestResult.ok ? "#ecfdf5" : "#fef2f2",
+              border: `1px solid ${textTestResult.ok ? "#a7f3d0" : "#fecaca"}`,
+              color: textTestResult.ok ? "#065f46" : "#991b1b",
               display: "flex",
               alignItems: "center",
               gap: 8,
             }}
           >
-            {testResult.ok ? (
+            {textTestResult.ok ? (
               <>
                 <CheckCircle2 size={16} />
                 <span>
-                  Соединение успешно! Задержка: <b>{testResult.latency_ms} мс</b>. Ответ модели: «{testResult.reply}»
+                  {textTestResult.model}: Связь подтверждена! Задержка: <b>{textTestResult.latency_ms} мс</b>. Ответ: «{textTestResult.reply}»
                 </span>
               </>
             ) : (
               <>
                 <AlertCircle size={16} />
-                <span>Ошибка подключения: {testResult.error}</span>
+                <span>Ошибка {textModel}: {textTestResult.error}</span>
+              </>
+            )}
+          </div>
+        )}
+
+        {visionTestResult && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: "10px 14px",
+              borderRadius: "var(--radius-sm)",
+              fontSize: 13,
+              background: visionTestResult.ok ? "#ecfdf5" : "#fef2f2",
+              border: `1px solid ${visionTestResult.ok ? "#a7f3d0" : "#fecaca"}`,
+              color: visionTestResult.ok ? "#065f46" : "#991b1b",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            {visionTestResult.ok ? (
+              <>
+                <CheckCircle2 size={16} />
+                <span>
+                  {visionTestResult.model}: Связь подтверждена! Задержка: <b>{visionTestResult.latency_ms} мс</b>. Ответ: «{visionTestResult.reply}»
+                </span>
+              </>
+            ) : (
+              <>
+                <AlertCircle size={16} />
+                <span>Ошибка {visionModel}: {visionTestResult.error}</span>
               </>
             )}
           </div>
         )}
       </div>
 
-      {/* Block 2: Exclusions */}
+      {/* Block 2: NeuralDeep Integration */}
+      <div className="card-box" style={{ marginBottom: 20 }}>
+        <div className="card-title-row">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Zap size={18} color="var(--purple)" />
+            <span className="card-heading">Сервис NeuralDeep (api.neuraldeep.ru)</span>
+          </div>
+        </div>
+
+        <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+          Шлюз моделей и эмбеддингов для семантического поиска (BGE-M3, E5-Large, Qwen3.6, Whisper).
+        </p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div className="form-group-block">
+            <label className="form-label-title">NeuralDeep Endpoint</label>
+            <input
+              type="text"
+              className="form-input-field"
+              value={ndEndpoint}
+              onChange={(e) => setNdEndpoint(e.target.value)}
+              placeholder="https://api.neuraldeep.ru/v1"
+            />
+          </div>
+
+          <div className="form-group-block">
+            <label className="form-label-title">NeuralDeep API Key</label>
+            <input
+              type="password"
+              className="form-input-field"
+              value={ndApiKey}
+              onChange={(e) => setNdApiKey(e.target.value)}
+              placeholder="sk-cf0g4O0..."
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <button
+            type="button"
+            className="btn-secondary-action"
+            onClick={handleTestNeuralDeepConnection}
+            disabled={testingNd || !onTestNeuralDeep}
+          >
+            {testingNd ? "Проверка..." : "Проверить статус NeuralDeep"}
+          </button>
+        </div>
+
+        {ndTestResult && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "10px 14px",
+              borderRadius: "var(--radius-sm)",
+              fontSize: 13,
+              background: ndTestResult.ok ? "#ecfdf5" : "#fef2f2",
+              border: `1px solid ${ndTestResult.ok ? "#a7f3d0" : "#fecaca"}`,
+              color: ndTestResult.ok ? "#065f46" : "#991b1b",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            {ndTestResult.ok ? (
+              <>
+                <CheckCircle2 size={16} />
+                <span>
+                  NeuralDeep доступен! Задержка: <b>{ndTestResult.latency_ms} мс</b>, доступно моделей: <b>{ndTestResult.models_count}</b> (включая BGE-M3, Qwen3.6, Whisper).
+                </span>
+              </>
+            ) : (
+              <>
+                <AlertCircle size={16} />
+                <span>Ошибка подключения к NeuralDeep: {ndTestResult.error}</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Block 3: Capture Interval & Automatic Screenshots */}
+      <div className="card-box" style={{ marginBottom: 20 }}>
+        <div className="card-title-row">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Clock size={18} color="var(--primary)" />
+            <span className="card-heading">Периодичность снимков экрана и OCR</span>
+          </div>
+        </div>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+          Снимки экрана делаются автоматически каждые <b>N секунд</b> (по умолчанию 15 с) и при переключении между приложениями. Локальный Apple Vision OCR мгновенно переводит экран в поисковый текст.
+        </p>
+
+        <div className="form-group-block">
+          <label className="form-label-title">Интервал создания снимков (секунд)</label>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="number"
+              min={5}
+              max={300}
+              className="form-input-field"
+              style={{ width: 140 }}
+              value={intervalSec}
+              onChange={(e) => setIntervalSec(Math.max(5, parseInt(e.target.value) || 5))}
+            />
+            <button
+              type="button"
+              className="btn-secondary-action"
+              onClick={async () => {
+                if (onUpdateCaptureInterval) {
+                  await onUpdateCaptureInterval(intervalSec);
+                  alert(`Интервал снимков сохранен: ${intervalSec} сек.`);
+                }
+              }}
+            >
+              Сохранить интервал
+            </button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
+            При отсутствии активности пользователя более 5 минут захват автоматически ставится на паузу.
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border-color)" }}>
+          <label className="form-label-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Trash2 size={15} color="var(--danger)" />
+            <span>Очистка временных снимков (F06)</span>
+          </label>
+          <p style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 10 }}>
+            Удаляет графические файлы <code>.png</code> из папки <code>attachments/</code>. Распознанный текст, контекст, заметки и история задач остаются в сохранности.
+          </p>
+          <button
+            type="button"
+            className="btn-secondary-action"
+            style={{ color: "var(--danger)", borderColor: "#fecaca" }}
+            disabled={cleaning}
+            onClick={async () => {
+              if (window.confirm("Удалить временные скриншоты экрана? Распознанный текст и заметки сохранятся.")) {
+                setCleaning(true);
+                try {
+                  if (onCleanSnapshots) {
+                    const res = await onCleanSnapshots();
+                    setCleanMsg(`Удалено снимков: ${res.deleted_count}, освобождено: ${res.freed_mb} МБ`);
+                  }
+                } catch (e: any) {
+                  setCleanMsg(`Ошибка: ${e.message || e}`);
+                } finally {
+                  setCleaning(false);
+                }
+              }
+            }}
+          >
+            {cleaning ? "Очищаю..." : "Очистить временные снимки экрана"}
+          </button>
+          {cleanMsg && (
+            <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--success)" }}>
+              {cleanMsg}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Block 4: Excluded Apps and Domains */}
       <div className="card-box" style={{ marginBottom: 20 }}>
         <div className="card-title-row">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -191,7 +475,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
 
         <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-          Данные из этих источников гарантированно не читаются, не сохраняются и не передаются в модель.
+          Данные из этих приложений и веб-доменов никогда не фиксируются, не сохраняются на диск и не отправляются в модели.
         </p>
 
         {/* Excluded Apps */}
@@ -315,85 +599,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       </div>
 
-      {/* Block 3: Screenshot Capture & Retention (F06) */}
-      <div className="card-box" style={{ marginBottom: 20 }}>
-        <div className="card-title-row">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Cpu size={18} color="var(--primary)" />
-            <span className="card-heading">Снимки экрана и OCR</span>
-          </div>
-        </div>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
-          Снимки экрана делаются автоматически с заданным интервалом и при смене окон. Нативный OCR (Apple Vision) распознаёт текст прямо на устройстве.
-        </p>
-
-        <div className="form-group-block">
-          <label className="form-label-title">Интервал создания снимков (секунд)</label>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input
-              type="number"
-              min={5}
-              max={300}
-              className="form-input-field"
-              style={{ width: 140 }}
-              value={intervalSec}
-              onChange={(e) => setIntervalSec(Math.max(5, parseInt(e.target.value) || 5))}
-            />
-            <button
-              type="button"
-              className="btn-secondary-action"
-              onClick={async () => {
-                if (onUpdateCaptureInterval) {
-                  await onUpdateCaptureInterval(intervalSec);
-                  alert(`Интервал снимков сохранен: ${intervalSec} сек.`);
-                }
-              }}
-            >
-              Сохранить интервал
-            </button>
-          </div>
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
-            По умолчанию 15 секунд. Если вы не работаете за компьютером более 5 минут, захват встаёт на паузу.
-          </div>
-        </div>
-
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border-color)" }}>
-          <label className="form-label-title">Очистка временных снимков (F06)</label>
-          <p style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 10 }}>
-            Удаляет тяжёлые графические файлы <code>.png</code> из папки <code>attachments/</code>. Распознанный текст, заметки и история остаются полностью в сохранности.
-          </p>
-          <button
-            type="button"
-            className="btn-secondary-action"
-            style={{ color: "var(--danger)", borderColor: "#fecaca" }}
-            disabled={cleaning}
-            onClick={async () => {
-              if (window.confirm("Удалить все временные снимки экрана? Текст и заметки сохранятся.")) {
-                setCleaning(true);
-                try {
-                  if (onCleanSnapshots) {
-                    const res = await onCleanSnapshots();
-                    setCleanMsg(`Удалено снимков: ${res.deleted_count}, освобождено: ${res.freed_mb} МБ`);
-                  }
-                } catch (e: any) {
-                  setCleanMsg(`Ошибка: ${e.message || e}`);
-                } finally {
-                  setCleaning(false);
-                }
-              }
-            }}
-          >
-            {cleaning ? "Очищаю..." : "Очистить временные снимки экрана"}
-          </button>
-          {cleanMsg && (
-            <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--success)" }}>
-              {cleanMsg}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Block 4: Rebuild Index */}
+      {/* Block 5: Rebuild Index */}
       <div className="card-box">
         <div className="card-title-row">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -402,7 +608,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </div>
         </div>
         <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
-          Все записи хранятся в открытом формате Markdown в папке <code>Memory/</code>. Если файлы правились вручную сторонними редакторами, переиндексируйте поисковую базу SQLite.
+          Все данные хранятся в открытом формате Markdown в папке <code>Memory/</code>. Если файлы правились вручную сторонними редакторами, переиндексируйте поисковую базу SQLite.
         </p>
 
         <button

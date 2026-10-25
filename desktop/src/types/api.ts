@@ -1,3 +1,12 @@
+export type NavSection =
+  | "chat"
+  | "dashboard"
+  | "tasks"
+  | "files"
+  | "history"
+  | "notes"
+  | "settings";
+
 export interface DocMetadata {
   id: string;
   title: string;

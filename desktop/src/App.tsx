@@ -30,6 +30,7 @@ export const App: React.FC = () => {
   const [currentDay, setCurrentDay] = useState<DayDetail | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
+  const [captureInterval, setCaptureInterval] = useState<number>(15);
 
   // Send request helper
   const send = async <T = any,>(type: string, payload: any = {}): Promise<T> => {
@@ -41,7 +42,7 @@ export const App: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [pol, tList, cList, dList, today, sug, mCfg] = await Promise.all([
+      const [pol, tList, cList, dList, today, sug, mCfg, capSet] = await Promise.all([
         send<PolicyStatus>("policy:get"),
         send<{ tasks: TaskItem[] }>("tasks:list"),
         send<{ conflicts: ConflictItem[] }>("conflicts:list"),
@@ -49,6 +50,7 @@ export const App: React.FC = () => {
         send<DayDetail>("storage:get_day", {}),
         send<{ suggestions: SuggestionItem[] }>("suggestions:list"),
         send<ModelConfig>("model:get_config"),
+        send<{ interval_seconds: number }>("capture:get_settings"),
       ]);
       setPolicy(pol);
       setTasks(tList.tasks || []);
@@ -57,6 +59,9 @@ export const App: React.FC = () => {
       setCurrentDay(today);
       setSuggestions(sug.suggestions || []);
       setModelConfig(mCfg);
+      if (capSet?.interval_seconds) {
+        setCaptureInterval(capSet.interval_seconds);
+      }
     } catch (e) {
       console.warn("Failed to load data:", e);
     }
@@ -140,6 +145,17 @@ export const App: React.FC = () => {
     setPolicy(r);
   };
 
+  const handleUpdateCaptureInterval = async (sec: number) => {
+    const res = await send<{ interval_seconds: number }>("capture:set_settings", { interval_seconds: sec });
+    if (res?.interval_seconds) {
+      setCaptureInterval(res.interval_seconds);
+    }
+  };
+
+  const handleCleanSnapshots = async (): Promise<{ deleted_count: number; freed_mb: number }> => {
+    return await send<{ deleted_count: number; freed_mb: number }>("storage:clean_snapshots", {});
+  };
+
   const handleRebuildIndex = async (): Promise<number> => {
     const r = await send<{ indexed_count: number }>("storage:sync");
     await loadData();
@@ -219,6 +235,9 @@ export const App: React.FC = () => {
               onRemoveExclusion={handleRemoveExclusion}
               onSetPrivacyMode={handleSetPrivacy}
               onRebuildIndex={handleRebuildIndex}
+              captureInterval={captureInterval}
+              onUpdateCaptureInterval={handleUpdateCaptureInterval}
+              onCleanSnapshots={handleCleanSnapshots}
             />
           )}
         </main>

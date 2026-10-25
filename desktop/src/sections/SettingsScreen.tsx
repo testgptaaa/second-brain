@@ -20,6 +20,9 @@ interface SettingsScreenProps {
   onRemoveExclusion: (type: "app" | "domain", value: string) => Promise<void>;
   onSetPrivacyMode: (mode: "raw" | "pseudonymize") => Promise<void>;
   onRebuildIndex: () => Promise<number>;
+  captureInterval?: number;
+  onUpdateCaptureInterval?: (sec: number) => Promise<void>;
+  onCleanSnapshots?: () => Promise<{ deleted_count: number; freed_mb: number }>;
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
@@ -31,16 +34,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onRemoveExclusion,
   onSetPrivacyMode,
   onRebuildIndex,
+  captureInterval = 15,
+  onUpdateCaptureInterval,
+  onCleanSnapshots,
 }) => {
   const [baseUrl, setBaseUrl] = useState(modelConfig?.base_url || "http://localhost:1234/v1");
   const [apiKey, setApiKey] = useState(modelConfig?.api_key || "");
   const [modelName, setModelName] = useState(modelConfig?.model_name || "local-model");
+  const [intervalSec, setIntervalSec] = useState<number>(captureInterval);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [newApp, setNewApp] = useState("");
   const [newDomain, setNewDomain] = useState("");
   const [reindexing, setReindexing] = useState(false);
   const [reindexMsg, setReindexMsg] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanMsg, setCleanMsg] = useState<string | null>(null);
 
   const handleSaveModel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -306,7 +315,85 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       </div>
 
-      {/* Block 3: Rebuild Index */}
+      {/* Block 3: Screenshot Capture & Retention (F06) */}
+      <div className="card-box" style={{ marginBottom: 20 }}>
+        <div className="card-title-row">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Cpu size={18} color="var(--primary)" />
+            <span className="card-heading">Снимки экрана и OCR</span>
+          </div>
+        </div>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>
+          Снимки экрана делаются автоматически с заданным интервалом и при смене окон. Нативный OCR (Apple Vision) распознаёт текст прямо на устройстве.
+        </p>
+
+        <div className="form-group-block">
+          <label className="form-label-title">Интервал создания снимков (секунд)</label>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input
+              type="number"
+              min={5}
+              max={300}
+              className="form-input-field"
+              style={{ width: 140 }}
+              value={intervalSec}
+              onChange={(e) => setIntervalSec(Math.max(5, parseInt(e.target.value) || 5))}
+            />
+            <button
+              type="button"
+              className="btn-secondary-action"
+              onClick={async () => {
+                if (onUpdateCaptureInterval) {
+                  await onUpdateCaptureInterval(intervalSec);
+                  alert(`Интервал снимков сохранен: ${intervalSec} сек.`);
+                }
+              }}
+            >
+              Сохранить интервал
+            </button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 4 }}>
+            По умолчанию 15 секунд. Если вы не работаете за компьютером более 5 минут, захват встаёт на паузу.
+          </div>
+        </div>
+
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--border-color)" }}>
+          <label className="form-label-title">Очистка временных снимков (F06)</label>
+          <p style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 10 }}>
+            Удаляет тяжёлые графические файлы <code>.png</code> из папки <code>attachments/</code>. Распознанный текст, заметки и история остаются полностью в сохранности.
+          </p>
+          <button
+            type="button"
+            className="btn-secondary-action"
+            style={{ color: "var(--danger)", borderColor: "#fecaca" }}
+            disabled={cleaning}
+            onClick={async () => {
+              if (window.confirm("Удалить все временные снимки экрана? Текст и заметки сохранятся.")) {
+                setCleaning(true);
+                try {
+                  if (onCleanSnapshots) {
+                    const res = await onCleanSnapshots();
+                    setCleanMsg(`Удалено снимков: ${res.deleted_count}, освобождено: ${res.freed_mb} МБ`);
+                  }
+                } catch (e: any) {
+                  setCleanMsg(`Ошибка: ${e.message || e}`);
+                } finally {
+                  setCleaning(false);
+                }
+              }
+            }}
+          >
+            {cleaning ? "Очищаю..." : "Очистить временные снимки экрана"}
+          </button>
+          {cleanMsg && (
+            <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--success)" }}>
+              {cleanMsg}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Block 4: Rebuild Index */}
       <div className="card-box">
         <div className="card-title-row">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

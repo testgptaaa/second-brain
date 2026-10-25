@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from adapters.window_tracker import WindowTracker
+from adapters.screen_capturer import ScreenCapturer
+from adapters.cleaner import clean_temporary_screenshots
 from gateway.client import ModelGateway
 from index.indexer import Indexer
 from memory.models import (
@@ -38,6 +41,17 @@ class IPCHandler:
         self.gateway = ModelGateway(self.storage, self.indexer)
         self.suggestions = SuggestionEngine(self.storage, self.indexer)
         self.window_tracker = WindowTracker()
+        self.screen_capturer = ScreenCapturer()
+
+        # Capture interval in seconds (default 15s as requested by user)
+        stored_interval = self.indexer.get_setting("capture_interval_seconds")
+        default_interval = int(os.environ.get("CAPTURE_INTERVAL_SECONDS", "15"))
+        self.capture_interval_seconds = int(stored_interval) if stored_interval else default_interval
+
+        self.last_capture_time: float = 0.0
+        self.last_app: str = ""
+        self.last_title: str = ""
+        self.last_url: str = ""
 
         # Start filesystem watcher
         self.watcher = MemoryWatcher(
@@ -367,10 +381,39 @@ class IPCHandler:
         self.suggestions.dismiss(s_id)
         return {"success": True}
 
+    def cmd_capture_get_settings(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "interval_seconds": self.capture_interval_seconds,
+            "is_paused": self.policy.is_paused,
+        }
+
+    def cmd_capture_set_settings(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if "interval_seconds" in payload:
+            sec = max(5, int(payload["interval_seconds"]))
+            self.capture_interval_seconds = sec
+            self.indexer.set_setting("capture_interval_seconds", str(sec))
+        return {
+            "interval_seconds": self.capture_interval_seconds,
+            "is_paused": self.policy.is_paused,
+        }
+
+    def cmd_storage_clean_snapshots(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Manually clean temporary screenshot images while leaving text & notes intact (F06)."""
+        res = clean_temporary_screenshots(self.storage.root_dir, max_age_days=None)
+        return res
+
     def cmd_capture_tick(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Capture tick: checks active window, verifies policy, creates episode if permitted."""
+        """Capture tick: checks active window, exclusions, takes screenshot every N seconds, and runs OCR."""
         if self.policy.is_paused:
             return {"status": "paused", "recorded": False}
+
+        now_ts = time.time()
+        now = datetime.now()
+
+        # Check idle time (pause recording if inactive for > 5 minutes)
+        idle_sec = self.window_tracker.get_idle_seconds()
+        if idle_sec > 300.0:
+            return {"status": "idle", "idle_seconds": idle_sec, "recorded": False}
 
         win_info = self.window_tracker.get_active_window()
         app_name = win_info.get("app", "")
@@ -383,8 +426,35 @@ class IPCHandler:
         if url and not self.policy.is_url_allowed(url):
             return {"status": "excluded_url", "url": url, "recorded": False}
 
-        now = datetime.now()
-        source_id = f"obs-{int(time.time() * 1000)}"
+        # Check if capture interval or context switch occurred
+        is_context_switch = (app_name != self.last_app or window_title != self.last_title)
+        is_interval_elapsed = (now_ts - self.last_capture_time >= self.capture_interval_seconds)
+
+        if not is_context_switch and not is_interval_elapsed:
+            return {"status": "skipped_interval", "recorded": False}
+
+        self.last_capture_time = now_ts
+        self.last_app = app_name
+        self.last_title = window_title
+        self.last_url = url
+
+        day_dir = self.storage.get_day_dir(now)
+        time_prefix = now.strftime("%H-%M-%S")
+        shot_id = f"shot-{int(now_ts * 1000)}"
+        shot_filename = f"{shot_id}.png"
+        shot_path = day_dir / "attachments" / shot_filename
+
+        # 1. Take silent screenshot
+        shot_captured = self.screen_capturer.capture_screen(shot_path)
+        shot_rel = str(shot_path.relative_to(self.storage.root_dir)) if shot_captured else None
+
+        # 2. Run OCR on screenshot
+        ocr_text = ""
+        if shot_captured:
+            ocr_text = self.screen_capturer.run_ocr(shot_path)
+
+        # 3. Save source metadata JSON (F06, F07)
+        source_id = f"obs-{int(now_ts * 1000)}"
         source_rec = SourceRecord(
             id=source_id,
             source_type=SourceType.DESKTOP_WINDOW,
@@ -392,23 +462,59 @@ class IPCHandler:
             window_title=window_title,
             uri=url,
             captured_at=now.isoformat(),
-            method=CaptureMethod.DIRECT_TEXT,
+            method=CaptureMethod.OCR if ocr_text else CaptureMethod.DIRECT_TEXT,
+            metadata={
+                "screenshot": shot_rel,
+                "has_ocr": bool(ocr_text),
+                "url": url,
+            },
         )
         self.storage.save_source_record(source_rec, now)
 
-        # Check if episode should be recorded
-        summary = f"Работа в приложении {app_name}: {window_title}"
-        ep = self.storage.save_episode(
-            summary=summary,
-            observations=f"Зафиксировано активное окно: {window_title} ({app_name}) в {now.strftime('%H:%M:%S')}",
-            dt=now,
-            source_ids=[source_id],
-        )
+        # 4. Save full context document (STORAGE.md context/HH-MM-SS_obs-<id>.md)
+        if ocr_text or window_title:
+            context_body = (
+                f"# Контекст: {window_title}\n\n"
+                f"- **Приложение:** {app_name}\n"
+                f"- **URL:** {url or 'Локальное приложение'}\n"
+                f"- **Снимок экрана:** {shot_rel or 'Нет'}\n\n"
+                f"## Распознанный текст на экране\n\n{ocr_text or 'Текст не обнаружен'}\n"
+            )
+            context_doc = MemoryDocument(
+                metadata=DocMetadata(
+                    id=source_id,
+                    title=f"Контекст: {app_name} - {window_title}"[:80],
+                    doc_type=DocumentType.CONTEXT,
+                    created_at=now.isoformat(),
+                    updated_at=now.isoformat(),
+                    source_id=source_id,
+                ),
+                body=context_body,
+            )
+            ctx_path = day_dir / "context" / f"{time_prefix}_{source_id}.md"
+            self.storage.write_document(context_doc, ctx_path)
+            self.indexer.index_document(context_doc, ctx_path, self.storage.root_dir)
 
-        # Index episode
-        ep_path = self.storage.root_dir / ep.relative_path
-        if ep_path.exists():
-            self.indexer.index_document(ep, ep_path, self.storage.root_dir)
+        # 5. If context switch or first capture of episode, save work episode
+        ep = None
+        if is_context_switch or not hasattr(self, "_current_episode_id"):
+            summary = f"Работа в приложении {app_name}: {window_title}"
+            observations = f"Активное окно: {window_title} ({app_name})"
+            if url:
+                observations += f"\nСтраница: {url}"
+            if ocr_text:
+                observations += f"\nКонтекст на экране: {ocr_text[:300]}..."
+
+            ep = self.storage.save_episode(
+                summary=summary,
+                observations=observations,
+                dt=now,
+                source_ids=[source_id],
+            )
+            self._current_episode_id = ep.metadata.id
+            ep_path = self.storage.root_dir / ep.relative_path
+            if ep_path.exists():
+                self.indexer.index_document(ep, ep_path, self.storage.root_dir)
 
         # Update day index
         self.storage.update_day_index(now)
@@ -416,9 +522,12 @@ class IPCHandler:
         return {
             "status": "recorded",
             "recorded": True,
-            "episode_id": ep.metadata.id,
+            "source_id": source_id,
+            "screenshot": shot_rel,
+            "has_ocr": bool(ocr_text),
             "app": app_name,
             "title": window_title,
+            "url": url,
         }
 
     def shutdown(self) -> None:

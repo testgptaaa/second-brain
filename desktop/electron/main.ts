@@ -133,16 +133,19 @@ app.whenReady().then(async () => {
       mainWindow?.webContents.send("secondBrain:event:engine:ready", payload);
     });
 
-    // Start background window context capture ticker (every 5 seconds)
+    // Start background window context capture ticker (checks interval & context switches)
     captureInterval = setInterval(async () => {
       if (pythonBridge && !isPaused) {
         try {
-          await pythonBridge.sendRequest("capture:tick", {});
+          const res = await pythonBridge.sendRequest("capture:tick", {});
+          if (res?.recorded && res?.app) {
+            mainWindow?.webContents.send("secondBrain:event:capture:recorded", res);
+          }
         } catch (e) {
           // ignore tick errors
         }
       }
-    }, 5000);
+    }, 3000);
   } catch (err) {
     console.error("[Main] Failed to start Python bridge:", err);
   }

@@ -2,24 +2,31 @@
 from __future__ import annotations
 
 import time
+import os
 from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from memory.models import ModelRequestRecord
 from memory.storage import MemoryStorage
 from index.indexer import Indexer
+from policy.privacy import TextPrivacyEngine
 
 
 class ModelGateway:
     def __init__(self, storage: MemoryStorage, indexer: Indexer):
         self.storage = storage
         self.indexer = indexer
+        self.privacy_engine = TextPrivacyEngine()
         self._load_config()
 
     def _load_config(self) -> None:
-        self.base_url = self.indexer.get_setting("model_base_url", "http://localhost:1234/v1") or "http://localhost:1234/v1"
-        self.api_key = self.indexer.get_setting("model_api_key", "") or ""
-        self.model_name = self.indexer.get_setting("model_name", "local-model") or "local-model"
+        env_base_url = os.environ.get("LLM_BASE_URL")
+        env_api_key = os.environ.get("LLM_API_KEY")
+        env_model_name = os.environ.get("LLM_MODEL_NAME")
+
+        self.base_url = self.indexer.get_setting("model_base_url", env_base_url or "http://localhost:1234/v1") or "http://localhost:1234/v1"
+        self.api_key = self.indexer.get_setting("model_api_key", env_api_key or "") or ""
+        self.model_name = self.indexer.get_setting("model_name", env_model_name or "local-model") or "local-model"
         self.timeout_seconds = float(self.indexer.get_setting("model_timeout", "30.0") or "30.0")
 
     def update_config(self, base_url: str, api_key: str, model_name: str) -> None:

@@ -7,9 +7,14 @@ import os
 import signal
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Add core/src to sys.path
 sys.path.insert(0, str(Path(__file__).parent.resolve()))
+
+# Load .env file from project root or current working dir
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+load_dotenv()
 
 from ipc.handler import IPCHandler
 

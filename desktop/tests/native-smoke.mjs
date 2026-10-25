@@ -1,6 +1,6 @@
 // Real Electron/preload/main/Python smoke. Run on macOS; no personal memory/keys.
 import { _electron as electron } from "playwright";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 const root = await mkdtemp(path.join(tmpdir(), "second-brain-native-"));
 let app;
 const launch = async () => {
+  await mkdir(path.join(root, "UserData"), { recursive: true });
   app = await electron.launch({
     args: [path.resolve(".")],
     env: {

@@ -13,7 +13,7 @@ export function DateFilter({
   onReset: () => void;
 }) {
   return (
-    <div>
+    <div className="date-filter">
       <label>
         С даты
         <input

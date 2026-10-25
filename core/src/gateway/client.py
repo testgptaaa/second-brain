@@ -331,7 +331,16 @@ class ModelGateway:
                 else:
                     status = "error"
                     err_msg = f"HTTP {res.status_code}: {res.text}"
-                    answer = f"Ошибка обращения к модели: {res.status_code}"
+                    if context_docs:
+                        answer = (
+                            f"*(Локальный поиск)* По вашему запросу «{question}» найдены следующие материалы:\n\n"
+                            + "\n".join(
+                                f"- **{d.get('title') or d.get('relative_path')}**: {d.get('snippet', '')}"
+                                for d in context_docs[:3]
+                            )
+                        )
+                    else:
+                        answer = f"Ошибка обращения к модели: {res.status_code}"
         except Exception as e:
             status = "error"
             err_msg = str(e)

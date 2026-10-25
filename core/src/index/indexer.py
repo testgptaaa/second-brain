@@ -18,6 +18,22 @@ from memory.models import (
 from memory.parser import parse_markdown_with_frontmatter
 
 
+RUSSIAN_STOP_WORDS = {
+    "и", "в", "во", "не", "что", "он", "на", "я", "с", "со", "как", "а", "то", "все", "она",
+    "так", "его", "но", "да", "ты", "к", "у", "же", "вы", "за", "бы", "по", "только", "ее",
+    "мне", "было", "вот", "от", "меня", "еще", "нет", "о", "об", "из", "ему", "теперь", "когда",
+    "даже", "ну", "вдруг", "ли", "если", "уже", "или", "ни", "быть", "был", "него", "до",
+    "вас", "нибудь", "опять", "уж", "вам", "ведь", "там", "потом", "себя", "ничего", "ей",
+    "может", "они", "тут", "где", "есть", "надо", "ней", "для", "мы", "тебя", "их", "чем",
+    "была", "сам", "чтоб", "без", "будто", "чего", "раз", "тоже", "себе", "под", "будет",
+    "тогда", "кто", "этот", "того", "потому", "этого", "какой", "совсем", "ним", "здесь",
+    "этом", "один", "почти", "мой", "тем", "чтобы", "нее", "сейчас", "были", "куда", "зачем",
+    "всех", "никогда", "можно", "при", "наконец", "два", "свои", "эту", "мои", "всего",
+    "какая", "исключая", "эти", "наш", "про", "нами",
+    "the", "and", "or", "is", "in", "at", "of", "a", "an", "to", "for", "on", "with",
+}
+
+
 class Indexer:
     def __init__(self, db_path: Union[str, Path]):
         self.db_path = Path(db_path)
@@ -237,14 +253,27 @@ class Indexer:
             return []
 
         # Split into tokens, sanitize and build prefix/term query
-        words = [re.sub(r'[^\w\d_]', '', w) for w in clean_query.split()]
-        words = [w for w in words if w]
-        if not words:
+        raw_words = [re.sub(r'[^\w\d_]', '', w) for w in clean_query.split()]
+        raw_words = [w for w in raw_words if w]
+        if not raw_words:
             return []
 
-        # Format terms with prefix wildcard for Russian word inflections
-        tokens = [f'"{w}"*' if len(w) >= 3 else f'"{w}"' for w in words]
-        formatted_query = " OR ".join(tokens)
+        # Filter out grammatical stop words for natural questions
+        content_words = [w for w in raw_words if w.lower() not in RUSSIAN_STOP_WORDS]
+        if not content_words:
+            content_words = raw_words
+
+        # Format terms with prefix wildcard and language cross-term expansion
+        expanded_tokens: List[str] = []
+        for w in content_words:
+            low = w.lower()
+            expanded_tokens.append(f'"{w}"*' if len(w) >= 3 else f'"{w}"')
+            if "window" in low and "винд*" not in expanded_tokens:
+                expanded_tokens.append('"винд"*')
+            elif "винд" in low and "window*" not in expanded_tokens:
+                expanded_tokens.append('"window"*')
+
+        formatted_query = " OR ".join(expanded_tokens)
 
         sql = """
         SELECT

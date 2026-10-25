@@ -1,156 +1,107 @@
 import React, { useState } from "react";
-import { Search, Send, Sparkles, BookOpen, ExternalLink, HelpCircle } from "lucide-react";
+import { Send } from "lucide-react";
 import { QAResult } from "../types/api";
 
 interface AskSectionProps {
   initialQuery?: string;
-  onAsk: (question: string) => Promise<QAResult>;
+  onAsk: (q: string) => Promise<QAResult>;
 }
 
 export const AskSection: React.FC<AskSectionProps> = ({ initialQuery = "", onAsk }) => {
-  const [question, setQuestion] = useState(initialQuery);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<QAResult | null>(null);
+  const [q, setQ]         = useState(initialQuery);
+  const [loading, setL]   = useState(false);
+  const [result, setR]    = useState<QAResult | null>(null);
 
-  const quickQuestions = [
+  const chips = [
     "На чём я остановился?",
-    "Откуда взялась цифра в бюджете?",
-    "Какие договорённости были с клиентом?",
-    "Что обсуждалось в чатах за сегодня?",
+    "Откуда взялась эта цифра?",
+    "Что обсуждали с клиентом?",
+    "Какие у меня дедлайны?",
   ];
 
-  const handleSearch = async (queryText?: string) => {
-    const q = (queryText !== undefined ? queryText : question).trim();
-    if (!q) return;
-    setLoading(true);
-    try {
-      const res = await onAsk(q);
-      setResult(res);
-    } catch (err: any) {
-      setResult({
-        request_id: "",
-        answer: `Ошибка при обработке запроса: ${err.message || err}`,
-        status: "error",
-        sources: [],
-      });
-    } finally {
-      setLoading(false);
-    }
+  const handle = async (text?: string) => {
+    const query = (text ?? q).trim();
+    if (!query) return;
+    setL(true);
+    try { setR(await onAsk(query)); }
+    catch (e: any) { setR({ request_id: "", answer: `Ошибка: ${e.message}`, status: "error", sources: [] }); }
+    finally { setL(false); }
   };
 
   return (
     <div>
-      <h1 className="section-title">Спросить память</h1>
-      <p className="section-desc">
-        Задайте вопрос на естественном языке. Помощник сформирует ответ со ссылками на точные файлы и доказательства.
-      </p>
-
-      {/* Search Input */}
-      <div className="search-box">
+      <div className="ask-bar">
         <input
-          type="text"
-          className="search-input"
-          placeholder="Например: На чём я остановился? Или: Где договор с ООО Вектор?"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch();
-          }}
+          className="ask-input"
+          placeholder="Спросите что-нибудь — «где договор с Вектором?», «что я делал вчера в 14:00?»"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handle()}
         />
         <button
-          className="btn-primary"
-          onClick={() => handleSearch()}
+          className="btn btn-primary"
+          onClick={() => handle()}
           disabled={loading}
-          style={{ display: "flex", alignItems: "center", gap: "8px" }}
+          style={{ padding: "0 18px" }}
         >
-          {loading ? <Sparkles size={16} className="animate-spin" /> : <Send size={16} />}
-          <span>{loading ? "Ищем..." : "Спросить"}</span>
+          {loading ? "Ищу…" : <Send size={15} />}
         </button>
       </div>
 
-      {/* Suggested chips */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "28px" }}>
-        <span style={{ fontSize: "12px", color: "var(--text-muted)", alignSelf: "center" }}>
-          Быстрые вопросы:
-        </span>
-        {quickQuestions.map((chip) => (
-          <button
-            key={chip}
-            className="btn-secondary"
-            style={{ fontSize: "12px", padding: "4px 10px", borderRadius: "14px" }}
-            onClick={() => {
-              setQuestion(chip);
-              handleSearch(chip);
-            }}
-          >
-            {chip}
+      <div className="chip-row">
+        {chips.map((c) => (
+          <button key={c} className="chip" onClick={() => { setQ(c); handle(c); }}>
+            {c}
           </button>
         ))}
       </div>
 
-      {/* Result Display */}
       {result && (
-        <div>
-          <div className="card" style={{ borderColor: "var(--accent-blue)", background: "#111c33", marginBottom: "24px" }}>
-            <div className="card-header">
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Sparkles size={18} color="var(--accent-blue)" />
-                <span className="card-title" style={{ color: "var(--accent-blue)" }}>
-                  Ответ ассистента
-                </span>
-              </div>
-              {result.tokens && (
-                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                  Токенов: {result.tokens.prompt + result.tokens.completion}
-                </span>
-              )}
-            </div>
-
-            <div style={{ fontSize: "14px", lineHeight: 1.7, whiteSpace: "pre-wrap", color: "var(--text-primary)" }}>
-              {result.answer}
-            </div>
-          </div>
-
-          {/* Sources and Verifiable Evidence */}
-          <div>
-            <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-              <BookOpen size={16} />
-              <span>Подтверждающие источники ({result.sources.length})</span>
-            </h2>
-
-            {result.sources.length === 0 ? (
-              <div className="card" style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-                Точных подтверждающих документов в памяти не найдено.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "12px" }}>
-                {result.sources.map((src, i) => (
-                  <div key={src.id || i} className="card" style={{ margin: 0 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                      <span style={{ fontWeight: 600, fontSize: "14px", color: "var(--accent-blue)" }}>
-                        [{i + 1}] {src.title || src.relative_path}
-                      </span>
-                      <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                        {src.created_at ? src.created_at.slice(0, 16).replace("T", " ") : ""}
-                      </span>
-                    </div>
-
-                    {src.snippet && (
-                      <div
-                        style={{ fontSize: "13px", color: "var(--text-secondary)", backgroundColor: "var(--bg-primary)", padding: "10px", borderRadius: "6px", marginBottom: "8px" }}
-                        dangerouslySetInnerHTML={{ __html: src.snippet }}
-                      />
-                    )}
-
-                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                      Путь к файлу: <code>{src.relative_path}</code>
-                    </div>
-                  </div>
-                ))}
+        <>
+          {/* Answer */}
+          <div className="answer-card">
+            <div className="answer-card-label">Ответ</div>
+            <div className="answer-text">{result.answer}</div>
+            {result.tokens && (
+              <div style={{ marginTop: 12, fontSize: 11.5, color: "var(--ink-3)" }}>
+                {result.tokens.prompt + result.tokens.completion} токенов
               </div>
             )}
           </div>
-        </div>
+
+          {/* Sources */}
+          {result.sources.length > 0 && (
+            <div className="card">
+              <div className="section-label" style={{ marginBottom: 4 }}>
+                Источники ({result.sources.length})
+              </div>
+              {result.sources.map((src, i) => (
+                <div key={src.id || i} className="source-row">
+                  <div className="source-num">{i + 1}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="source-title">{src.title || src.relative_path}</div>
+                    <div className="source-meta">
+                      {src.created_at?.slice(0, 16).replace("T", "  ")}
+                      {src.relative_path && ` · ${src.relative_path}`}
+                    </div>
+                    {src.snippet && (
+                      <div
+                        className="source-snippet"
+                        dangerouslySetInnerHTML={{ __html: src.snippet }}
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {result.sources.length === 0 && (
+            <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
+              Подтверждающих документов не найдено в сохранённой памяти.
+            </div>
+          )}
+        </>
       )}
     </div>
   );

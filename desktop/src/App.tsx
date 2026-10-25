@@ -18,197 +18,173 @@ import {
   QAResult,
 } from "./types/api";
 
-export const App: React.FC = () => {
-  const [activeSection, setActiveSection] = useState<SectionType>("today");
-  const [policy, setPolicy] = useState<PolicyStatus | null>(null);
-  const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [days, setDays] = useState<DayOverview[]>([]);
-  const [currentDayDetail, setCurrentDayDetail] = useState<DayDetail | null>(null);
-  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
-  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
-  const [askInitialQuery, setAskInitialQuery] = useState<string>("");
-  const [memoryRoot, setMemoryRoot] = useState<string>("");
+const SECTION_TITLES: Record<SectionType, string> = {
+  today:    "Сегодня",
+  ask:      "Поиск и вопросы",
+  history:  "История по датам",
+  tasks:    "Задачи и заметки",
+  settings: "Настройки",
+};
 
-  // Helper to send request through window.secondBrain or browser fallback
+export const App: React.FC = () => {
+  const [section, setSection]               = useState<SectionType>("today");
+  const [policy, setPolicy]                 = useState<PolicyStatus | null>(null);
+  const [conflicts, setConflicts]           = useState<ConflictItem[]>([]);
+  const [tasks, setTasks]                   = useState<TaskItem[]>([]);
+  const [days, setDays]                     = useState<DayOverview[]>([]);
+  const [currentDay, setCurrentDay]         = useState<DayDetail | null>(null);
+  const [suggestions, setSuggestions]       = useState<SuggestionItem[]>([]);
+  const [modelConfig, setModelConfig]       = useState<ModelConfig | null>(null);
+  const [askQuery, setAskQuery]             = useState("");
+
   const send = async <T = any,>(type: string, payload: any = {}): Promise<T> => {
     if (window.secondBrain) {
       return await window.secondBrain.sendRequest<T>(type, payload);
     }
-    console.warn(`[BrowserMode] Mocking IPC request: ${type}`, payload);
-    // Fallback data for standalone browser dev mode
     return mockHandler(type, payload);
   };
 
-  const loadInitialData = async () => {
-    try {
-      const pol = await send<PolicyStatus>("policy:get");
-      setPolicy(pol);
-
-      const tList = await send<{ tasks: TaskItem[] }>("tasks:list");
-      setTasks(tList.tasks || []);
-
-      const cList = await send<{ conflicts: ConflictItem[] }>("conflicts:list");
-      setConflicts(cList.conflicts || []);
-
-      const dList = await send<{ days: DayOverview[] }>("storage:list_days");
-      setDays(dList.days || []);
-
-      const todayDetail = await send<DayDetail>("storage:get_day", {});
-      setCurrentDayDetail(todayDetail);
-
-      const sugList = await send<{ suggestions: SuggestionItem[] }>("suggestions:list");
-      setSuggestions(sugList.suggestions || []);
-
-      const mCfg = await send<ModelConfig>("model:get_config");
-      setModelConfig(mCfg);
-
-      const stStatus = await send<{ root_dir: string }>("storage:status");
-      if (stStatus?.root_dir) setMemoryRoot(stStatus.root_dir);
-    } catch (err) {
-      console.error("Failed to load initial data:", err);
-    }
+  const loadAll = async () => {
+    const [pol, tList, cList, dList, today, sug, mCfg] = await Promise.all([
+      send<PolicyStatus>("policy:get"),
+      send<{ tasks: TaskItem[] }>("tasks:list"),
+      send<{ conflicts: ConflictItem[] }>("conflicts:list"),
+      send<{ days: DayOverview[] }>("storage:list_days"),
+      send<DayDetail>("storage:get_day", {}),
+      send<{ suggestions: SuggestionItem[] }>("suggestions:list"),
+      send<ModelConfig>("model:get_config"),
+    ]);
+    setPolicy(pol);
+    setTasks(tList.tasks || []);
+    setConflicts(cList.conflicts || []);
+    setDays(dList.days || []);
+    setCurrentDay(today);
+    setSuggestions(sug.suggestions || []);
+    setModelConfig(mCfg);
   };
 
   useEffect(() => {
-    loadInitialData();
-
-    // Listen to push events if running in Electron
+    loadAll();
     if (window.secondBrain) {
-      const unsubFile = window.secondBrain.onEvent("storage:file_changed", () => {
-        loadInitialData();
-      });
-      const unsubReady = window.secondBrain.onEvent("engine:ready", (data) => {
-        if (data.memory_root) setMemoryRoot(data.memory_root);
-        loadInitialData();
-      });
-      return () => {
-        unsubFile();
-        unsubReady();
-      };
+      const u1 = window.secondBrain.onEvent("storage:file_changed", loadAll);
+      const u2 = window.secondBrain.onEvent("engine:ready", loadAll);
+      return () => { u1(); u2(); };
     }
   }, []);
 
-  // Handlers
   const handleTogglePause = async () => {
-    const nextPaused = !policy?.is_paused;
-    const updated = await send<PolicyStatus>("policy:set_pause", { paused: nextPaused });
+    const next = !policy?.is_paused;
+    const updated = await send<PolicyStatus>("policy:set_pause", { paused: next });
     setPolicy(updated);
   };
 
   const handleSync = async () => {
     await send("storage:sync");
-    await loadInitialData();
+    await loadAll();
   };
 
-  const handleCreateTask = async (title: string, description: string, dueDate?: string) => {
-    await send("tasks:create", { title, description, due_date: dueDate });
-    const tList = await send<{ tasks: TaskItem[] }>("tasks:list");
-    setTasks(tList.tasks || []);
+  const handleCreateTask = async (title: string, desc: string, due?: string) => {
+    await send("tasks:create", { title, description: desc, due_date: due });
+    const r = await send<{ tasks: TaskItem[] }>("tasks:list");
+    setTasks(r.tasks || []);
   };
 
   const handleUpdateTaskStatus = async (id: string, status: TaskItem["status"]) => {
     await send("tasks:update", { id, status });
-    const tList = await send<{ tasks: TaskItem[] }>("tasks:list");
-    setTasks(tList.tasks || []);
+    const r = await send<{ tasks: TaskItem[] }>("tasks:list");
+    setTasks(r.tasks || []);
   };
 
   const handleCreateNote = async (title: string, content: string, tags?: string[]) => {
     await send("notes:create", { title, content, tags });
-    const todayDetail = await send<DayDetail>("storage:get_day", {});
-    setCurrentDayDetail(todayDetail);
+    const today = await send<DayDetail>("storage:get_day", {});
+    setCurrentDay(today);
   };
 
-  const handleDismissSuggestion = async (id: string) => {
+  const handleDismiss = async (id: string) => {
     await send("suggestions:dismiss", { id });
     setSuggestions((prev) => prev.filter((s) => s.id !== id));
   };
 
-  const handleAcceptTaskSuggestion = async (sug: SuggestionItem) => {
-    const title = sug.payload?.suggested_title || sug.title;
-    const desc = sug.payload?.quote || sug.description;
+  const handleAcceptTask = async (s: SuggestionItem) => {
+    const title = s.payload?.suggested_title || s.title;
+    const desc  = s.payload?.quote || s.description;
     await handleCreateTask(title, desc);
-    await handleDismissSuggestion(sug.id);
+    await handleDismiss(s.id);
   };
 
-  const handleAsk = async (question: string): Promise<QAResult> => {
-    return await send<QAResult>("qa:ask", { question });
-  };
+  const handleAsk = async (q: string): Promise<QAResult> =>
+    send<QAResult>("qa:ask", { question: q });
 
-  const handleSelectDay = async (dateStr: string): Promise<DayDetail> => {
-    return await send<DayDetail>("storage:get_day", { date: dateStr });
-  };
+  const handleSelectDay = async (d: string): Promise<DayDetail> =>
+    send<DayDetail>("storage:get_day", { date: d });
 
-  const handleUpdateModelConfig = async (cfg: ModelConfig) => {
+  const handleUpdateModel = async (cfg: ModelConfig) => {
     await send("model:update_config", cfg);
     setModelConfig(cfg);
   };
 
-  const handleTestModelConnection = async () => {
-    return await send("model:test_connection");
-  };
+  const handleTestModel = async () => send("model:test_connection");
 
   const handleAddExclusion = async (type: "app" | "domain", value: string) => {
-    const res = await send<PolicyStatus>("policy:add_exclusion", { [type]: value });
-    setPolicy(res);
+    const r = await send<PolicyStatus>("policy:add_exclusion", { [type]: value });
+    setPolicy(r);
   };
 
   const handleRemoveExclusion = async (type: "app" | "domain", value: string) => {
-    const res = await send<PolicyStatus>("policy:remove_exclusion", { [type]: value });
-    setPolicy(res);
+    const r = await send<PolicyStatus>("policy:remove_exclusion", { [type]: value });
+    setPolicy(r);
   };
 
-  const handleSetPrivacyMode = async (mode: "raw" | "pseudonymize") => {
-    const res = await send<PolicyStatus>("policy:set_privacy_mode", { mode });
-    setPolicy(res);
+  const handleSetPrivacy = async (mode: "raw" | "pseudonymize") => {
+    const r = await send<PolicyStatus>("policy:set_privacy_mode", { mode });
+    setPolicy(r);
   };
 
   const handleRebuildIndex = async (): Promise<number> => {
-    const res = await send<{ indexed_count: number }>("storage:sync");
-    await loadInitialData();
-    return res.indexed_count || 0;
+    const r = await send<{ indexed_count: number }>("storage:sync");
+    await loadAll();
+    return r.indexed_count || 0;
   };
+
+  const today = new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div className="app-container">
       <Sidebar
-        activeSection={activeSection}
-        onSelectSection={setActiveSection}
-        memoryRoot={memoryRoot}
+        activeSection={section}
+        onSelectSection={setSection}
+        isPaused={policy?.is_paused ?? false}
+        onTogglePause={handleTogglePause}
       />
 
       <div className="main-wrapper">
         <Header
           policy={policy}
           conflicts={conflicts}
-          onTogglePause={handleTogglePause}
+          title={SECTION_TITLES[section]}
+          subtitle={section === "today" ? today : undefined}
           onSync={handleSync}
-          onViewConflicts={() => setActiveSection("tasks")}
+          onViewConflicts={() => setSection("tasks")}
         />
 
         <main className="content-area">
-          {activeSection === "today" && (
+          {section === "today" && (
             <TodaySection
-              dayDetail={currentDayDetail}
+              dayDetail={currentDay}
               suggestions={suggestions}
-              onDismissSuggestion={handleDismissSuggestion}
-              onAcceptTaskSuggestion={handleAcceptTaskSuggestion}
-              onSelectAskQuery={(q) => {
-                setAskInitialQuery(q);
-                setActiveSection("ask");
-              }}
+              onDismissSuggestion={handleDismiss}
+              onAcceptTaskSuggestion={handleAcceptTask}
+              onSelectAskQuery={(q) => { setAskQuery(q); setSection("ask"); }}
             />
           )}
-
-          {activeSection === "ask" && (
-            <AskSection initialQuery={askInitialQuery} onAsk={handleAsk} />
+          {section === "ask" && (
+            <AskSection initialQuery={askQuery} onAsk={handleAsk} />
           )}
-
-          {activeSection === "history" && (
+          {section === "history" && (
             <HistorySection days={days} onSelectDay={handleSelectDay} />
           )}
-
-          {activeSection === "tasks" && (
+          {section === "tasks" && (
             <TasksSection
               tasks={tasks}
               conflicts={conflicts}
@@ -217,17 +193,16 @@ export const App: React.FC = () => {
               onCreateNote={handleCreateNote}
             />
           )}
-
-          {activeSection === "settings" && (
+          {section === "settings" && (
             <SettingsSection
               policy={policy}
               modelConfig={modelConfig}
-              onUpdateModelConfig={handleUpdateModelConfig}
-              onTestModelConnection={handleTestModelConnection}
+              onUpdateModelConfig={handleUpdateModel}
+              onTestModelConnection={handleTestModel}
               onTogglePause={handleTogglePause}
               onAddExclusion={handleAddExclusion}
               onRemoveExclusion={handleRemoveExclusion}
-              onSetPrivacyMode={handleSetPrivacyMode}
+              onSetPrivacyMode={handleSetPrivacy}
               onRebuildIndex={handleRebuildIndex}
             />
           )}
@@ -237,85 +212,43 @@ export const App: React.FC = () => {
   );
 };
 
-// Fallback mock responses when running in standard web browser without Electron
-function mockHandler(type: string, payload: any): any {
-  if (type === "policy:get") {
-    return {
-      is_paused: false,
-      privacy_mode: "raw",
-      analysis_mode: "direct_text",
-      excluded_apps: ["1Password", "Bitwarden"],
-      excluded_domains: ["sberbank.ru"],
-    };
-  }
-  if (type === "storage:status") {
-    return { root_dir: "/Users/user/Documents/Memory" };
-  }
-  if (type === "storage:get_day") {
-    return {
-      date: new Date().toISOString().slice(0, 10),
-      episodes: [
-        {
-          id: "ep-mock-1",
-          title: "Работа в Битрикс24: Задача №142 Согласование сметы",
-          body: "## Что делали\nОткрыли вкладку сметы в браузере.\n## Наблюдения\nСогласован бюджет 500 000 руб.",
-          path: "days/2026/10/25/episodes/14-00-00_ep-1.md",
-          created_at: new Date().toISOString(),
-        },
-      ],
-      notes: [],
-    };
-  }
-  if (type === "tasks:list") {
-    return {
-      tasks: [
-        {
-          id: "t-1",
-          title: "Проверить договор с клиентом Вектор",
-          status: "todo",
-          due_date: "2026-10-30",
-          confirmed: 1,
-          created_at: new Date().toISOString(),
-        },
-      ],
-    };
-  }
-  if (type === "conflicts:list") return { conflicts: [] };
-  if (type === "suggestions:list") {
-    return {
-      suggestions: [
-        {
-          id: "sug-demo-1",
-          scenario_id: "P01",
-          title: "Контекст задачи Битрикс",
-          description: "Открыта задача Битрикс. Найдены связанные документы и прошлые решения.",
-          source_refs: [{ id: "doc-1", title: "Смета_Альфа.docx" }],
-          actions: ["view_source", "dismiss"],
-          is_notification: false,
-          created_at: new Date().toISOString(),
-          dismissed: false,
-        },
-      ],
-    };
-  }
-  if (type === "model:get_config") {
-    return { base_url: "http://localhost:1234/v1", api_key: "", model_name: "local-model" };
-  }
-  if (type === "qa:ask") {
-    return {
-      request_id: "mock-req",
-      answer: "По вашему запросу найдена информация о согласовании сметы на 500 000 руб.",
-      status: "success",
-      sources: [
-        {
-          id: "mock-src-1",
-          title: "Смета_Альфа.docx",
-          relative_path: "days/2026/10/25/episodes/14-00-00_ep-1.md",
-          snippet: "Согласован бюджет <b>500 000 руб</b>.",
-          created_at: new Date().toISOString(),
-        },
-      ],
-    };
-  }
-  return { success: true };
+function mockHandler(type: string, _payload: any): any {
+  if (type === "policy:get")       return { is_paused: false, privacy_mode: "raw", analysis_mode: "direct_text", excluded_apps: ["1Password"], excluded_domains: ["sberbank.ru"] };
+  if (type === "storage:get_day")  return {
+    date: new Date().toISOString().slice(0, 10),
+    episodes: [
+      { id: "ep1", title: "Битрикс24 — Задача №142: согласование сметы", body: "## Наблюдения\n\nОткрыта страница задачи. Бюджет — 500 000 ₽. Ответственный Иванов.\nОбсуждение в комментариях: срок — 1 ноября.", path: "days/2026/10/25/episodes/10-00-00_ep1.md", created_at: "2026-10-25T10:14:00" },
+      { id: "ep2", title: "Excel — Смета_Q4_v3.xlsx", body: "## Наблюдения\n\nОткрыта таблица сметы. Лист «Октябрь», строка 14 — итоговая сумма.", path: "days/2026/10/25/episodes/11-30-00_ep2.md", created_at: "2026-10-25T11:32:00" },
+      { id: "ep3", title: "Telegram — чат «Команда проекта»", body: "## Наблюдения\n\nПоступило сообщение от Марины: «Можешь подготовить цифры к утреннему звонку?».", path: "days/2026/10/25/episodes/13-45-00_ep3.md", created_at: "2026-10-25T13:47:00" },
+    ],
+    notes: [
+      { id: "n1", title: "Звонок с поставщиком", body: "Обсудили сроки поставки. Перенесли на 10 ноября.", path: "days/2026/10/25/notes/12-00-00_n1.md", created_at: "2026-10-25T12:01:00", tags: ["поставщик", "сроки"] },
+    ],
+  };
+  if (type === "tasks:list")       return { tasks: [
+    { id: "t1", title: "Подготовить цифры к звонку", status: "todo", due_date: "2026-10-26", confirmed: 1, created_at: "2026-10-25T13:48:00" },
+    { id: "t2", title: "Согласовать смету с Ивановым", status: "in_progress", due_date: "2026-11-01", confirmed: 1, created_at: "2026-10-25T10:15:00" },
+    { id: "t3", title: "Ответить Марине по цифрам", status: "waiting_reply", confirmed: 1, created_at: "2026-10-25T13:48:00" },
+  ]};
+  if (type === "conflicts:list")   return { conflicts: [] };
+  if (type === "suggestions:list") return { suggestions: [
+    { id: "s1", scenario_id: "P03", title: "Запрос от Марины требует задачи", description: "В Telegram найден запрос: «Можешь подготовить цифры к утреннему звонку?». Создать задачу?", source_refs: [{ id: "ep3", title: "Telegram — чат «Команда проекта»" }], actions: ["accept_task", "dismiss"], is_notification: false, created_at: new Date().toISOString(), dismissed: false, payload: { suggested_title: "Подготовить цифры к звонку", quote: "«Можешь подготовить цифры к утреннему звонку?»" } },
+  ]};
+  if (type === "storage:list_days") return { days: [
+    { date: new Date().toISOString().slice(0,10), path: "days/2026/10/25", episodes_count: 3, notes_count: 1 },
+    { date: "2026-10-24", path: "days/2026/10/24", episodes_count: 7, notes_count: 2 },
+    { date: "2026-10-23", path: "days/2026/10/23", episodes_count: 4, notes_count: 0 },
+  ]};
+  if (type === "model:get_config")  return { base_url: "http://localhost:1234/v1", api_key: "", model_name: "local-model" };
+  if (type === "qa:ask")            return {
+    request_id: "mock",
+    answer: "По вашему запросу найдена информация из сметы. Сумма 500 000 ₽ зафиксирована в задаче Битрикс №142 (10:14) и подтверждена в таблице Смета_Q4_v3.xlsx, лист «Октябрь», строка 14 (11:32).",
+    status: "success",
+    sources: [
+      { id: "ep1", title: "Битрикс24 — Задача №142", relative_path: "days/2026/10/25/episodes/10-00-00_ep1.md", snippet: "Бюджет — <b>500 000 ₽</b>. Ответственный Иванов.", created_at: "2026-10-25T10:14:00" },
+      { id: "ep2", title: "Excel — Смета_Q4_v3.xlsx", relative_path: "days/2026/10/25/episodes/11-30-00_ep2.md", snippet: "Лист «Октябрь», строка 14 — <b>итоговая сумма</b>.", created_at: "2026-10-25T11:32:00" },
+    ],
+    tokens: { prompt: 312, completion: 87 },
+  };
+  return { success: true, tasks: [], conflicts: [], suggestions: [], indexed_count: 0, days: [] };
 }

@@ -1,52 +1,47 @@
 import React from "react";
-import {
-  Calendar,
-  MessageSquare,
-  Clock,
-  CheckSquare,
-  Settings,
-  Brain,
-  FolderOpen,
-} from "lucide-react";
+import { Calendar, MessageSquare, Clock, CheckSquare, Settings } from "lucide-react";
 
 export type SectionType = "today" | "ask" | "history" | "tasks" | "settings";
 
 interface SidebarProps {
   activeSection: SectionType;
-  onSelectSection: (section: SectionType) => void;
+  onSelectSection: (s: SectionType) => void;
+  isPaused: boolean;
+  onTogglePause: () => void;
   memoryRoot?: string;
+  currentApp?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeSection,
   onSelectSection,
+  isPaused,
+  onTogglePause,
   memoryRoot,
+  currentApp,
 }) => {
-  const navItems: Array<{ id: SectionType; label: string; icon: React.ReactNode }> = [
-    { id: "today", label: "Сегодня", icon: <Calendar size={18} /> },
-    { id: "ask", label: "Спросить", icon: <MessageSquare size={18} /> },
-    { id: "history", label: "История", icon: <Clock size={18} /> },
-    { id: "tasks", label: "Задачи и заметки", icon: <CheckSquare size={18} /> },
-    { id: "settings", label: "Настройки", icon: <Settings size={18} /> },
+  const nav: Array<{ id: SectionType; label: string; icon: React.ReactNode }> = [
+    { id: "today",   label: "Сегодня",          icon: <Calendar size={15} /> },
+    { id: "ask",     label: "Поиск и вопросы",   icon: <MessageSquare size={15} /> },
+    { id: "history", label: "История",           icon: <Clock size={15} /> },
+    { id: "tasks",   label: "Задачи и заметки",  icon: <CheckSquare size={15} /> },
+    { id: "settings",label: "Настройки",         icon: <Settings size={15} /> },
   ];
+
+  const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="sidebar-logo">
-          <Brain size={18} />
-        </div>
-        <div>
-          <div className="sidebar-title">Второй мозг</div>
-          <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Десктоп-ассистент</div>
-        </div>
+      <div className="sidebar-brand">
+        <div className="sidebar-brand-name">Второй мозг</div>
+        <div className="sidebar-brand-sub">{today}</div>
       </div>
 
       <nav className="sidebar-nav">
-        {navItems.map((item) => (
+        {nav.map((item) => (
           <div
             key={item.id}
-            className={`nav-item ${activeSection === item.id ? "active" : ""}`}
+            className={`nav-item${activeSection === item.id ? " active" : ""}`}
             onClick={() => onSelectSection(item.id)}
           >
             {item.icon}
@@ -55,14 +50,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <FolderOpen size={14} />
-          <span>Файловая память</span>
+      <div className="sidebar-status">
+        <div className="status-row">
+          <div className={`status-dot${isPaused ? " paused" : " live"}`} />
+          <span>{isPaused ? "Пауза" : "Наблюдение"}</span>
         </div>
-        <div style={{ fontSize: "11px", color: "var(--text-muted)", wordBreak: "break-all" }}>
-          {memoryRoot ? memoryRoot.split("/").slice(-2).join("/") : "runtime_data/Memory"}
-        </div>
+        {!isPaused && currentApp && (
+          <div className="status-app-name" title={currentApp}>{currentApp}</div>
+        )}
+        <button className="btn-pause" onClick={onTogglePause}>
+          {isPaused ? "Возобновить" : "Пауза"}
+        </button>
       </div>
     </aside>
   );

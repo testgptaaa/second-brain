@@ -1,15 +1,6 @@
 import React, { useState } from "react";
-import {
-  CheckSquare,
-  Plus,
-  AlertTriangle,
-  Clock,
-  CheckCircle,
-  Circle,
-  FileText,
-  Save,
-} from "lucide-react";
-import { TaskItem, ConflictItem, MemoryDoc } from "../types/api";
+import { Plus, Save, CheckCircle, X } from "lucide-react";
+import { TaskItem, ConflictItem } from "../types/api";
 
 interface TasksSectionProps {
   tasks: TaskItem[];
@@ -26,270 +17,169 @@ export const TasksSection: React.FC<TasksSectionProps> = ({
   onUpdateTaskStatus,
   onCreateNote,
 }) => {
-  const [activeTab, setActiveTab] = useState<"tasks" | "notes" | "conflicts">("tasks");
+  const [tab, setTab] = useState<"tasks" | "notes" | "conflicts">("tasks");
+  const [showModal, setShowModal] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc]   = useState("");
+  const [newDue, setNewDue]     = useState("");
 
-  // New task form state
-  const [showNewTaskModal, setShowNewTaskModal] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskDesc, setNewTaskDesc] = useState("");
-  const [newTaskDue, setNewTaskDue] = useState("");
+  const [noteTitle, setNoteTitle]   = useState("");
+  const [noteBody, setNoteBody]     = useState("");
+  const [noteTags, setNoteTags]     = useState("");
+  const [noteSaved, setNoteSaved]   = useState(false);
 
-  // New note form state
-  const [newNoteTitle, setNewNoteTitle] = useState("");
-  const [newNoteContent, setNewNoteContent] = useState("");
-  const [newNoteTags, setNewNoteTags] = useState("");
+  const columns: Array<{ s: TaskItem["status"]; label: string }> = [
+    { s: "todo",          label: "К выполнению" },
+    { s: "in_progress",   label: "В работе"     },
+    { s: "waiting_reply", label: "Жду ответа"   },
+    { s: "done",          label: "Готово"        },
+  ];
 
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-    await onCreateTask(newTaskTitle.trim(), newTaskDesc.trim(), newTaskDue || undefined);
-    setNewTaskTitle("");
-    setNewTaskDesc("");
-    setNewTaskDue("");
-    setShowNewTaskModal(false);
+    if (!newTitle.trim()) return;
+    await onCreateTask(newTitle.trim(), newDesc.trim(), newDue || undefined);
+    setNewTitle(""); setNewDesc(""); setNewDue(""); setShowModal(false);
   };
 
   const handleCreateNote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNoteTitle.trim()) return;
-    const tags = newNoteTags
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
-    await onCreateNote(newNoteTitle.trim(), newNoteContent.trim(), tags);
-    setNewNoteTitle("");
-    setNewNoteContent("");
-    setNewNoteTags("");
-    alert("Заметка успешно сохранена в Memory/days/...");
+    if (!noteTitle.trim()) return;
+    const tags = noteTags.split(",").map((t) => t.trim()).filter(Boolean);
+    await onCreateNote(noteTitle.trim(), noteBody.trim(), tags);
+    setNoteTitle(""); setNoteBody(""); setNoteTags(""); setNoteSaved(true);
+    setTimeout(() => setNoteSaved(false), 3000);
   };
 
-  const columns: Array<{ status: TaskItem["status"]; title: string; color: string }> = [
-    { status: "todo", title: "К выполнению", color: "var(--accent-blue)" },
-    { status: "in_progress", title: "В работе", color: "var(--accent-amber)" },
-    { status: "waiting_reply", title: "Жду ответа", color: "var(--accent-purple)" },
-    { status: "done", title: "Выполнено", color: "var(--accent-green)" },
-  ];
+  const nextStatus: Record<string, TaskItem["status"][]> = {
+    todo:          ["in_progress", "done"],
+    in_progress:   ["waiting_reply", "done"],
+    waiting_reply: ["in_progress", "done"],
+    done:          ["todo"],
+  };
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-        <div>
-          <h1 className="section-title">Задачи, заметки и конфликты</h1>
-          <p className="section-desc">Управление договорённостями, личные заметки и разрешение внешних правок</p>
-        </div>
-
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            className="btn-primary"
-            onClick={() => setShowNewTaskModal(true)}
-            style={{ display: "flex", alignItems: "center", gap: "6px" }}
-          >
-            <Plus size={16} />
-            <span>Новая задача</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border-color)", marginBottom: "20px" }}>
-        <button
-          className="btn-secondary"
-          style={{
-            borderBottom: activeTab === "tasks" ? "2px solid var(--accent-blue)" : "none",
-            borderRadius: "6px 6px 0 0",
-            color: activeTab === "tasks" ? "var(--accent-blue)" : "var(--text-secondary)",
-          }}
-          onClick={() => setActiveTab("tasks")}
-        >
+      <div className="tabs">
+        <button className={`tab-btn${tab === "tasks"     ? " active" : ""}`} onClick={() => setTab("tasks")}>
           Задачи ({tasks.length})
         </button>
-        <button
-          className="btn-secondary"
-          style={{
-            borderBottom: activeTab === "notes" ? "2px solid var(--accent-blue)" : "none",
-            borderRadius: "6px 6px 0 0",
-            color: activeTab === "notes" ? "var(--accent-blue)" : "var(--text-secondary)",
-          }}
-          onClick={() => setActiveTab("notes")}
-        >
+        <button className={`tab-btn${tab === "notes"     ? " active" : ""}`} onClick={() => setTab("notes")}>
           Создать заметку
         </button>
-        <button
-          className="btn-secondary"
-          style={{
-            borderBottom: activeTab === "conflicts" ? "2px solid var(--accent-red)" : "none",
-            borderRadius: "6px 6px 0 0",
-            color: conflicts.length > 0 ? "var(--accent-red)" : "var(--text-secondary)",
-          }}
-          onClick={() => setActiveTab("conflicts")}
+        <button className={`tab-btn${tab === "conflicts" ? " active" : ""}`} onClick={() => setTab("conflicts")}
+          style={{ color: conflicts.length > 0 ? "var(--danger)" : undefined }}
         >
-          Конфликты правок ({conflicts.length})
+          Конфликты ({conflicts.length})
         </button>
       </div>
 
-      {/* TAB 1: Tasks Kanban */}
-      {activeTab === "tasks" && (
-        <div className="kanban-grid">
-          {columns.map((col) => {
-            const colTasks = tasks.filter((t) => t.status === col.status);
-            return (
-              <div key={col.status} className="kanban-col">
-                <div className="kanban-col-header">
-                  <span style={{ color: col.color }}>{col.title}</span>
-                  <span style={{ color: "var(--text-muted)" }}>{colTasks.length}</span>
-                </div>
-
-                {colTasks.length === 0 ? (
-                  <div style={{ fontSize: "12px", color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>
-                    Нет задач
+      {/* ── Tasks ──────────────────────────────────────────────────────── */}
+      {tab === "tasks" && (
+        <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowModal(true)}>
+              <Plus size={13} /> Новая задача
+            </button>
+          </div>
+          <div className="kanban">
+            {columns.map((col) => {
+              const colTasks = tasks.filter((t) => t.status === col.s);
+              return (
+                <div key={col.s}>
+                  <div className="kanban-col-head">
+                    <span>{col.label}</span>
+                    <span className="kanban-count">{colTasks.length}</span>
                   </div>
-                ) : (
-                  colTasks.map((t) => (
-                    <div key={t.id} className="card" style={{ marginBottom: "10px", padding: "12px" }}>
-                      <div style={{ fontWeight: 600, fontSize: "14px", marginBottom: "6px" }}>{t.title}</div>
+                  {colTasks.length === 0 && (
+                    <div style={{ fontSize: 12, color: "var(--ink-3)", padding: "8px 0" }}>Нет задач</div>
+                  )}
+                  {colTasks.map((t) => (
+                    <div key={t.id} className="task-card">
+                      <div className="task-card-title">{t.title}</div>
                       {t.due_date && (
-                        <div style={{ fontSize: "11px", color: "var(--accent-amber)", display: "flex", alignItems: "center", gap: "4px", marginBottom: "8px" }}>
-                          <Clock size={12} />
-                          <span>Срок: {t.due_date.slice(0, 10)}</span>
+                        <div className="task-due">
+                          До {t.due_date.slice(0, 10)}
                         </div>
                       )}
-
-                      {/* State transition buttons */}
-                      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "8px" }}>
-                        {col.status !== "todo" && (
+                      <div className="task-actions">
+                        {(nextStatus[t.status] ?? []).map((ns) => (
                           <button
-                            className="btn-secondary"
-                            style={{ fontSize: "10px", padding: "2px 6px" }}
-                            onClick={() => onUpdateTaskStatus(t.id, "todo")}
+                            key={ns}
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => onUpdateTaskStatus(t.id, ns)}
                           >
-                            К выполнению
+                            {ns === "done"          ? "Готово"         :
+                             ns === "in_progress"   ? "В работу"       :
+                             ns === "waiting_reply" ? "Жду ответа"     :
+                             "К выполнению"}
                           </button>
-                        )}
-                        {col.status !== "in_progress" && (
-                          <button
-                            className="btn-secondary"
-                            style={{ fontSize: "10px", padding: "2px 6px" }}
-                            onClick={() => onUpdateTaskStatus(t.id, "in_progress")}
-                          >
-                            В работу
-                          </button>
-                        )}
-                        {col.status !== "waiting_reply" && (
-                          <button
-                            className="btn-secondary"
-                            style={{ fontSize: "10px", padding: "2px 6px" }}
-                            onClick={() => onUpdateTaskStatus(t.id, "waiting_reply")}
-                          >
-                            Жду ответа
-                          </button>
-                        )}
-                        {col.status !== "done" && (
-                          <button
-                            className="btn-secondary"
-                            style={{ fontSize: "10px", padding: "2px 6px", color: "var(--accent-green)" }}
-                            onClick={() => onUpdateTaskStatus(t.id, "done")}
-                          >
-                            Завершить
-                          </button>
-                        )}
+                        ))}
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
-      {/* TAB 2: Notes Editor */}
-      {activeTab === "notes" && (
-        <div className="card" style={{ maxWidth: "700px" }}>
-          <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <FileText size={18} />
-            <span>Новая заметка в локальную память</span>
-          </h2>
-
+      {/* ── Notes ──────────────────────────────────────────────────────── */}
+      {tab === "notes" && (
+        <div style={{ maxWidth: 640 }}>
+          {noteSaved && (
+            <div className="callout callout-success" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <CheckCircle size={15} /> Заметка сохранена в Memory/days/…
+            </div>
+          )}
           <form onSubmit={handleCreateNote}>
-            <div className="form-group">
-              <label className="form-label">Заголовок заметки</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Например: Итоги встречи с поставщиком"
-                value={newNoteTitle}
-                onChange={(e) => setNewNoteTitle(e.target.value)}
-                required
-              />
+            <div className="form-row">
+              <label className="form-label">Заголовок</label>
+              <input className="form-input" placeholder="Название заметки" value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)} required />
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Содержимое (Markdown)</label>
-              <textarea
-                className="form-input"
-                rows={8}
-                placeholder="Запишите мысли, договорённости или скопированный текст..."
-                value={newNoteContent}
-                onChange={(e) => setNewNoteContent(e.target.value)}
-              />
+            <div className="form-row">
+              <label className="form-label">Содержимое</label>
+              <textarea className="form-input" rows={8} placeholder="Текст, договорённости, ссылки…"
+                value={noteBody} onChange={(e) => setNoteBody(e.target.value)} />
             </div>
-
-            <div className="form-group">
+            <div className="form-row">
               <label className="form-label">Теги (через запятую)</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="клиент, договор, 2026"
-                value={newNoteTags}
-                onChange={(e) => setNewNoteTags(e.target.value)}
-              />
+              <input className="form-input" placeholder="клиент, проект, важное" value={noteTags}
+                onChange={(e) => setNoteTags(e.target.value)} />
             </div>
-
-            <button type="submit" className="btn-primary" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <Save size={16} />
-              <span>Сохранить в Memory</span>
+            <button type="submit" className="btn btn-primary">
+              <Save size={14} /> Сохранить
             </button>
           </form>
         </div>
       )}
 
-      {/* TAB 3: Conflicts Viewer (EXTERNAL_EDITS.md) */}
-      {activeTab === "conflicts" && (
+      {/* ── Conflicts ──────────────────────────────────────────────────── */}
+      {tab === "conflicts" && (
         <div>
-          <div className="card" style={{ backgroundColor: "rgba(248, 113, 113, 0.08)", borderColor: "rgba(248, 113, 113, 0.3)", marginBottom: "20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--accent-red)", fontWeight: 600, marginBottom: "6px" }}>
-              <AlertTriangle size={18} />
-              <span>Правило разрешения конфликтов внешних правок</span>
-            </div>
-            <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-              Приложение никогда не затирает файл, изменённый вами в сторонней программе (Obsidian, VS Code и др.). Ваши изменения сохранены в оригинальном файле. Версия приложения сохранена рядом в папке <code>conflicts/</code>.
-            </p>
+          <div className="callout callout-warn" style={{ marginBottom: 16 }}>
+            Когда вы редактируете файл памяти снаружи (например, в Obsidian) одновременно с тем,
+            как приложение пишет в него — ваша версия всегда остаётся на месте. Версия приложения
+            сохраняется рядом в папке <code>conflicts/</code>.
           </div>
-
           {conflicts.length === 0 ? (
-            <div className="card" style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)" }}>
-              <CheckCircle size={32} color="var(--accent-green)" style={{ margin: "0 auto 10px", display: "block" }} />
-              Конфликтов нет. Все файлы памяти синхронизированы с базой данных.
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--ink-2)" }}>
+              <CheckCircle size={16} color="var(--live)" /> Конфликтов нет — всё синхронизировано.
             </div>
           ) : (
-            conflicts.map((cnf) => (
-              <div key={cnf.id} className="card" style={{ borderColor: "var(--accent-red)" }}>
-                <div className="card-header">
-                  <span className="card-title" style={{ color: "var(--accent-red)" }}>
-                    Конфликт: {cnf.doc_id}
-                  </span>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{cnf.created_at}</span>
+            conflicts.map((c) => (
+              <div key={c.id} className="card" style={{ marginBottom: 8, borderColor: "#FECACA" }}>
+                <div style={{ fontWeight: 600, fontSize: 13.5, color: "var(--danger)", marginBottom: 6 }}>
+                  Конфликт: {c.doc_id}
                 </div>
-                <div style={{ fontSize: "13px", marginBottom: "8px" }}>
-                  <b>Причина:</b> {cnf.reason}
+                <div style={{ fontSize: 12.5, marginBottom: 6 }}><b>Причина:</b> {c.reason}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                  Ваша версия: <code>{c.canonical_path}</code>
                 </div>
-                <div style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <div>
-                    Ваша версия осталась на месте: <code>{cnf.canonical_path}</code>
-                  </div>
-                  <div>
-                    Версия приложения записана в: <code>{cnf.conflict_path}</code>
-                  </div>
+                <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+                  Версия приложения: <code>{c.conflict_path}</code>
                 </div>
               </div>
             ))
@@ -297,66 +187,35 @@ export const TasksSection: React.FC<TasksSectionProps> = ({
         </div>
       )}
 
-      {/* Modal for creating task */}
-      {showNewTaskModal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.7)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-          }}
-        >
-          <div className="card" style={{ width: "480px", maxWidth: "90vw", background: "var(--bg-primary)" }}>
-            <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px" }}>Создать новую задачу</h2>
+      {/* ── New task modal ──────────────────────────────────────────────── */}
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div className="modal-title" style={{ marginBottom: 0 }}>Новая задача</div>
+              <button className="btn-link" style={{ color: "var(--ink-3)" }} onClick={() => setShowModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
             <form onSubmit={handleCreateTask}>
-              <div className="form-group">
-                <label className="form-label">Название задачи</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Что необходимо сделать?"
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  autoFocus
-                  required
-                />
+              <div className="form-row">
+                <label className="form-label">Что нужно сделать</label>
+                <input className="form-input" placeholder="Название задачи" value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)} autoFocus required />
               </div>
-
-              <div className="form-group">
-                <label className="form-label">Описание / контекст</label>
-                <textarea
-                  className="form-input"
-                  rows={4}
-                  placeholder="Дополнительные детали или цитата из чата..."
-                  value={newTaskDesc}
-                  onChange={(e) => setNewTaskDesc(e.target.value)}
-                />
+              <div className="form-row">
+                <label className="form-label">Контекст или описание</label>
+                <textarea className="form-input" rows={3} placeholder="Необязательно"
+                  value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
               </div>
-
-              <div className="form-group">
-                <label className="form-label">Срок выполнения (дедлайн)</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={newTaskDue}
-                  onChange={(e) => setNewTaskDue(e.target.value)}
-                />
+              <div className="form-row">
+                <label className="form-label">Срок</label>
+                <input type="date" className="form-input" value={newDue}
+                  onChange={(e) => setNewDue(e.target.value)} />
               </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowNewTaskModal(false)}>
-                  Отмена
-                </button>
-                <button type="submit" className="btn-primary">
-                  Создать
-                </button>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Отмена</button>
+                <button type="submit" className="btn btn-primary">Создать</button>
               </div>
             </form>
           </div>

@@ -1,21 +1,13 @@
 import React, { useState } from "react";
-import {
-  Sparkles,
-  Check,
-  X,
-  FileText,
-  Clock,
-  Layers,
-  ArrowRight,
-} from "lucide-react";
+import { X, ArrowRight, Check } from "lucide-react";
 import { DayDetail, SuggestionItem } from "../types/api";
 
 interface TodaySectionProps {
   dayDetail: DayDetail | null;
   suggestions: SuggestionItem[];
   onDismissSuggestion: (id: string) => void;
-  onAcceptTaskSuggestion: (suggestion: SuggestionItem) => void;
-  onSelectAskQuery: (query: string) => void;
+  onAcceptTaskSuggestion: (s: SuggestionItem) => void;
+  onSelectAskQuery: (q: string) => void;
 }
 
 export const TodaySection: React.FC<TodaySectionProps> = ({
@@ -25,90 +17,49 @@ export const TodaySection: React.FC<TodaySectionProps> = ({
   onAcceptTaskSuggestion,
   onSelectAskQuery,
 }) => {
-  const [expandedEpisode, setExpandedEpisode] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const episodes = dayDetail?.episodes || [];
-  const notes = dayDetail?.notes || [];
+  const notes    = dayDetail?.notes    || [];
+
+  const todayStr = new Date().toLocaleDateString("ru-RU", {
+    weekday: "long", day: "numeric", month: "long",
+  });
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <h1 className="section-title">Сегодня — {dayDetail?.date || new Date().toISOString().slice(0, 10)}</h1>
-          <p className="section-desc">
-            Хроника рабочего дня, зафиксированные эпизоды и инициативные подсказки
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            className="btn-secondary"
-            onClick={() => onSelectAskQuery("На чём я остановился?")}
-            style={{ display: "flex", alignItems: "center", gap: "6px" }}
-          >
-            <span>«На чём я остановился?»</span>
-            <ArrowRight size={14} />
-          </button>
-        </div>
-      </div>
-
-      {/* Proactive Suggestions (P01–P08) */}
+      {/* Suggestions */}
       {suggestions.length > 0 && (
-        <div style={{ marginBottom: "24px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <Sparkles size={16} color="var(--accent-blue)" />
-            <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--accent-blue)" }}>
-              Инициативные подсказки ассистента ({suggestions.length})
-            </span>
-          </div>
-
-          {suggestions.map((sug) => (
-            <div key={sug.id} className="suggestion-card">
-              <div className="suggestion-header">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span className="scenario-tag">{sug.scenario_id}</span>
-                  <span style={{ fontWeight: 600, fontSize: "14px" }}>{sug.title}</span>
+        <div style={{ marginBottom: 24 }}>
+          <div className="section-label">Ассистент заметил</div>
+          {suggestions.map((s) => (
+            <div key={s.id} className="suggestion-strip">
+              <div className="suggestion-strip-header">
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="suggestion-tag">{s.scenario_id}</span>
+                  <span className="suggestion-title">{s.title}</span>
                 </div>
                 <button
-                  className="btn-secondary"
-                  style={{ padding: "4px 8px" }}
-                  onClick={() => onDismissSuggestion(sug.id)}
-                  title="Скрыть подсказку"
+                  className="btn-link"
+                  style={{ color: "var(--ink-3)" }}
+                  onClick={() => onDismissSuggestion(s.id)}
                 >
                   <X size={14} />
                 </button>
               </div>
-
-              <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                {sug.description}
-              </p>
-
-              {sug.source_refs && sug.source_refs.length > 0 && (
-                <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
-                  Связанные источники:{" "}
-                  {sug.source_refs.map((ref) => (
-                    <span key={ref.id} style={{ color: "var(--accent-blue)", marginRight: "8px" }}>
-                      #{ref.title || ref.id}
-                    </span>
-                  ))}
-                </div>
-              )}
-
+              <p className="suggestion-desc">{s.description}</p>
               <div className="suggestion-actions">
-                {sug.actions.includes("accept_task") && (
-                  <button className="btn-primary" onClick={() => onAcceptTaskSuggestion(sug)}>
-                    <Check size={14} style={{ marginRight: "6px", verticalAlign: "middle" }} />
-                    Добавить в задачи
+                {s.actions.includes("accept_task") && (
+                  <button className="btn btn-primary btn-sm" onClick={() => onAcceptTaskSuggestion(s)}>
+                    <Check size={12} /> Добавить задачу
                   </button>
                 )}
-                {sug.actions.includes("view_source") && (
-                  <button
-                    className="btn-secondary"
-                    onClick={() => onSelectAskQuery(sug.title)}
-                  >
-                    Посмотреть детали
+                {s.actions.includes("view_source") && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => onSelectAskQuery(s.title)}>
+                    Найти в памяти
                   </button>
                 )}
-                <button className="btn-secondary" onClick={() => onDismissSuggestion(sug.id)}>
+                <button className="btn btn-secondary btn-sm" onClick={() => onDismissSuggestion(s.id)}>
                   Понятно
                 </button>
               </div>
@@ -117,41 +68,64 @@ export const TodaySection: React.FC<TodaySectionProps> = ({
         </div>
       )}
 
-      {/* Grid: Episodes timeline & Notes */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "24px" }}>
-        {/* Left: Episodes */}
-        <div>
-          <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <Layers size={16} />
-            <span>Эпизоды работы ({episodes.length})</span>
-          </h2>
+      {/* Quick ask strip */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+        }}
+      >
+        <div className="section-label" style={{ marginBottom: 0 }}>
+          {episodes.length === 0 ? "Эпизодов пока нет" : `${episodes.length} эпизодов`}
+          {notes.length > 0 && `, ${notes.length} заметок`}
+        </div>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => onSelectAskQuery("На чём я остановился?")}
+          style={{ display: "flex", alignItems: "center", gap: 5 }}
+        >
+          На чём я остановился? <ArrowRight size={12} />
+        </button>
+      </div>
 
+      {/* Main layout: timeline + notes sidebar */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 260px", gap: 24 }}>
+
+        {/* Timeline */}
+        <div>
           {episodes.length === 0 ? (
-            <div className="card" style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-muted)" }}>
-              <Clock size={32} style={{ margin: "0 auto 12px", opacity: 0.5 }} />
-              <p>Наблюдение активно. Новые рабочие эпизоды появятся здесь по мере переключения между окнами и документами.</p>
+            <div className="card empty-state">
+              <div className="empty-state-text">
+                Наблюдение активно. Переключитесь между окнами — первые записи появятся здесь.
+              </div>
             </div>
           ) : (
-            <div>
+            <div className="timeline">
               {episodes.map((ep) => {
-                const isExpanded = expandedEpisode === ep.id;
-                const timeStr = ep.created_at ? ep.created_at.slice(11, 16) : "";
+                const timeStr = ep.created_at?.slice(11, 16) ?? "";
+                const isOpen  = expandedId === ep.id;
                 return (
-                  <div key={ep.id} className="timeline-item">
-                    <div className="timeline-dot" />
+                  <div key={ep.id} className="timeline-entry">
                     <div className="timeline-time">{timeStr}</div>
-                    <div className="card" style={{ cursor: "pointer" }} onClick={() => setExpandedEpisode(isExpanded ? null : ep.id)}>
-                      <div className="card-header">
-                        <span className="card-title">{ep.title}</span>
-                        <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                          {isExpanded ? "Свернуть" : "Развернуть"}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: "13px", color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
-                        {isExpanded ? ep.body : ep.body.slice(0, 180) + (ep.body.length > 180 ? "..." : "")}
-                      </div>
-                      <div style={{ marginTop: "10px", fontSize: "11px", color: "var(--text-muted)" }}>
-                        Файл: <code>{ep.path}</code>
+                    <div className="timeline-body">
+                      <div
+                        className="timeline-card"
+                        onClick={() => setExpandedId(isOpen ? null : ep.id)}
+                      >
+                        <div className="timeline-card-title">{ep.title}</div>
+                        {isOpen && (
+                          <div className="timeline-card-body" style={{ whiteSpace: "pre-wrap" }}>
+                            {ep.body}
+                          </div>
+                        )}
+                        {!isOpen && (
+                          <div className="timeline-card-meta">
+                            {ep.body.slice(0, 120).replace(/#+\s/g, "").trim()}
+                            {ep.body.length > 120 ? "…" : ""}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -161,32 +135,24 @@ export const TodaySection: React.FC<TodaySectionProps> = ({
           )}
         </div>
 
-        {/* Right: Notes created today */}
+        {/* Notes sidebar */}
         <div>
-          <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <FileText size={16} />
-            <span>Заметки за день ({notes.length})</span>
-          </h2>
-
+          <div className="section-label">Заметки за день</div>
           {notes.length === 0 ? (
-            <div className="card" style={{ textAlign: "center", padding: "30px 16px", color: "var(--text-muted)", fontSize: "13px" }}>
-              Заметок за сегодня пока нет. Создать можно во вкладке «Задачи и заметки».
+            <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+              Заметок нет. Создать можно в разделе «Задачи и заметки».
             </div>
           ) : (
-            notes.map((note) => (
-              <div key={note.id} className="card" style={{ marginBottom: "12px" }}>
-                <div style={{ fontWeight: 600, fontSize: "14px", marginBottom: "6px" }}>
-                  {note.title}
+            notes.map((n) => (
+              <div key={n.id} className="card" style={{ marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{n.title}</div>
+                <div style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.5 }}>
+                  {n.body.slice(0, 140)}{n.body.length > 140 ? "…" : ""}
                 </div>
-                <div style={{ fontSize: "12px", color: "var(--text-secondary)", maxHeight: "100px", overflow: "hidden" }}>
-                  {note.body}
-                </div>
-                {note.tags && note.tags.length > 0 && (
-                  <div style={{ marginTop: "8px", display: "flex", gap: "4px" }}>
-                    {note.tags.map((t) => (
-                      <span key={t} className="tag-pill" style={{ fontSize: "10px", padding: "2px 8px" }}>
-                        #{t}
-                      </span>
+                {n.tags && n.tags.length > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {n.tags.map((t) => (
+                      <span key={t} className="pill" style={{ fontSize: 11 }}>{t}</span>
                     ))}
                   </div>
                 )}

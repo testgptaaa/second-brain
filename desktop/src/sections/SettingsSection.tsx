@@ -1,27 +1,16 @@
 import React, { useState } from "react";
-import {
-  Settings,
-  Cpu,
-  Shield,
-  EyeOff,
-  Trash2,
-  RefreshCw,
-  Plus,
-  X,
-  CheckCircle,
-  AlertCircle,
-} from "lucide-react";
+import { CheckCircle, AlertCircle } from "lucide-react";
 import { PolicyStatus, ModelConfig } from "../types/api";
 
 interface SettingsSectionProps {
   policy: PolicyStatus | null;
   modelConfig: ModelConfig | null;
-  onUpdateModelConfig: (cfg: ModelConfig) => Promise<void>;
-  onTestModelConnection: () => Promise<{ ok: boolean; latency_ms?: number; reply?: string; error?: string }>;
+  onUpdateModelConfig: (c: ModelConfig) => Promise<void>;
+  onTestModelConnection: () => Promise<any>;
   onTogglePause: () => void;
   onAddExclusion: (type: "app" | "domain", value: string) => Promise<void>;
   onRemoveExclusion: (type: "app" | "domain", value: string) => Promise<void>;
-  onSetPrivacyMode: (mode: "raw" | "pseudonymize") => Promise<void>;
+  onSetPrivacyMode: (m: "raw" | "pseudonymize") => Promise<void>;
   onRebuildIndex: () => Promise<number>;
 }
 
@@ -30,293 +19,166 @@ export const SettingsSection: React.FC<SettingsSectionProps> = ({
   modelConfig,
   onUpdateModelConfig,
   onTestModelConnection,
-  onTogglePause,
   onAddExclusion,
   onRemoveExclusion,
   onSetPrivacyMode,
   onRebuildIndex,
 }) => {
-  // Model state
-  const [baseUrl, setBaseUrl] = useState(modelConfig?.base_url || "http://localhost:1234/v1");
-  const [apiKey, setApiKey] = useState(modelConfig?.api_key || "");
-  const [modelName, setModelName] = useState(modelConfig?.model_name || "local-model");
-  const [testResult, setTestResult] = useState<{ ok: boolean; latency_ms?: number; reply?: string; error?: string } | null>(null);
-  const [testing, setTesting] = useState(false);
+  const [baseUrl, setBaseUrl]       = useState(modelConfig?.base_url ?? "http://localhost:1234/v1");
+  const [apiKey, setApiKey]         = useState(modelConfig?.api_key ?? "");
+  const [modelName, setModelName]   = useState(modelConfig?.model_name ?? "local-model");
+  const [testing, setTesting]       = useState(false);
+  const [testResult, setTestResult] = useState<any>(null);
+  const [newApp, setNewApp]         = useState("");
+  const [newDomain, setNewDomain]   = useState("");
   const [reindexing, setReindexing] = useState(false);
-  const [reindexResult, setReindexResult] = useState<string | null>(null);
+  const [reindexResult, setRR]      = useState<string | null>(null);
 
-  // New exclusion inputs
-  const [newApp, setNewApp] = useState("");
-  const [newDomain, setNewDomain] = useState("");
-
-  const handleSaveModel = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onUpdateModelConfig({
-      base_url: baseUrl,
-      api_key: apiKey,
-      model_name: modelName,
-    });
-    alert("Настройки модели сохранены!");
+    await onUpdateModelConfig({ base_url: baseUrl, api_key: apiKey, model_name: modelName });
   };
 
-  const handleTestConnection = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await onTestModelConnection();
-      setTestResult(res);
-    } catch (err: any) {
-      setTestResult({ ok: false, error: err.message || String(err) });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleAddApp = async () => {
-    if (!newApp.trim()) return;
-    await onAddExclusion("app", newApp.trim());
-    setNewApp("");
-  };
-
-  const handleAddDomain = async () => {
-    if (!newDomain.trim()) return;
-    await onAddExclusion("domain", newDomain.trim());
-    setNewDomain("");
+  const handleTest = async () => {
+    setTesting(true); setTestResult(null);
+    try { setTestResult(await onTestModelConnection()); }
+    catch (e: any) { setTestResult({ ok: false, error: e.message }); }
+    finally { setTesting(false); }
   };
 
   const handleReindex = async () => {
-    setReindexing(true);
-    setReindexResult(null);
-    try {
-      const count = await onRebuildIndex();
-      setReindexResult(`Успешно переиндексировано документов: ${count}`);
-    } catch (err: any) {
-      setReindexResult(`Ошибка переиндексации: ${err.message || err}`);
-    } finally {
-      setReindexing(false);
-    }
+    setReindexing(true); setRR(null);
+    try { const n = await onRebuildIndex(); setRR(`Переиндексировано документов: ${n}`); }
+    catch (e: any) { setRR(`Ошибка: ${e.message}`); }
+    finally { setReindexing(false); }
   };
 
   return (
-    <div style={{ maxWidth: "800px" }}>
-      <h1 className="section-title">Настройки и безопасность</h1>
-      <p className="section-desc">
-        Управление подключением моделей, правилами исключений, приватностью и хранилищем
-      </p>
+    <div style={{ maxWidth: 640 }}>
 
-      {/* Block 1: Model Gateway (F04) */}
-      <div className="card" style={{ marginBottom: "24px" }}>
-        <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <Cpu size={18} color="var(--accent-blue)" />
-          <span>Подключение модели (OpenAI API / LM Studio)</span>
-        </h2>
-
-        <form onSubmit={handleSaveModel}>
-          <div className="form-group">
-            <label className="form-label">Base URL (Адрес API)</label>
-            <input
-              type="text"
-              className="form-input"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="http://localhost:1234/v1"
-              required
-            />
-            <div className="form-help">
-              Для LM Studio укажите <code>http://localhost:1234/v1</code>. Для OpenAI: <code>https://api.openai.com/v1</code>
-            </div>
+      {/* Model connection */}
+      <div className="settings-block">
+        <div className="settings-block-title">Модель</div>
+        <div className="settings-block-sub">
+          OpenAI-совместимый API. LM Studio: <code>http://localhost:1234/v1</code>, ключ не нужен.
+        </div>
+        <form onSubmit={handleSave}>
+          <div className="form-row">
+            <label className="form-label">Base URL</label>
+            <input className="form-input" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required />
           </div>
-
-          <div className="form-group">
+          <div className="form-row">
             <label className="form-label">Название модели</label>
-            <input
-              type="text"
-              className="form-input"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="local-model или gpt-4o-mini"
-              required
-            />
+            <input className="form-input" placeholder="local-model или gpt-4o-mini" value={modelName}
+              onChange={(e) => setModelName(e.target.value)} required />
           </div>
-
-          <div className="form-group">
-            <label className="form-label">Ключ API (необязательно для локального LM Studio)</label>
-            <input
-              type="password"
-              className="form-input"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="lm-studio или sk-..."
-            />
+          <div className="form-row">
+            <label className="form-label">Ключ API (необязательно)</label>
+            <input className="form-input" type="password" placeholder="sk-…" value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)} />
           </div>
-
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <button type="submit" className="btn-primary">
-              Сохранить параметры
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={handleTestConnection}
-              disabled={testing}
-            >
-              {testing ? "Проверка..." : "Проверить подключение (Тестовый пинг)"}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" className="btn btn-primary btn-sm">Сохранить</button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={handleTest} disabled={testing}>
+              {testing ? "Проверяю…" : "Тест соединения"}
             </button>
           </div>
         </form>
-
-        {/* Live connection test result */}
         {testResult && (
-          <div
-            style={{
-              marginTop: "16px",
-              padding: "12px",
-              borderRadius: "6px",
-              backgroundColor: testResult.ok ? "rgba(52, 211, 153, 0.1)" : "rgba(248, 113, 113, 0.1)",
-              border: `1px solid ${testResult.ok ? "var(--accent-green)" : "var(--accent-red)"}`,
-              fontSize: "13px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
-              {testResult.ok ? (
-                <>
-                  <CheckCircle size={16} color="var(--accent-green)" />
-                  <span style={{ color: "var(--accent-green)" }}>
-                    Подключение успешно! Задержка: {testResult.latency_ms} мс
-                  </span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle size={16} color="var(--accent-red)" />
-                  <span style={{ color: "var(--accent-red)" }}>Ошибка подключения к модели</span>
-                </>
-              )}
-            </div>
-            {testResult.reply && <div style={{ marginTop: "4px" }}>Ответ модели: <i>{testResult.reply}</i></div>}
-            {testResult.error && <div style={{ marginTop: "4px", color: "var(--accent-red)" }}>{testResult.error}</div>}
+          <div className={`test-result ${testResult.ok ? "ok" : "err"}`}>
+            {testResult.ok
+              ? <><CheckCircle size={15} /> Подключение OK · {testResult.latency_ms} мс · «{testResult.reply}»</>
+              : <><AlertCircle size={15} /> {testResult.error}</>
+            }
           </div>
         )}
       </div>
 
-      {/* Block 2: Exclusions and Privacy (F02, F05) */}
-      <div className="card" style={{ marginBottom: "24px" }}>
-        <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <Shield size={18} color="var(--accent-green)" />
-          <span>Исключения и приватность данных</span>
-        </h2>
-
-        {/* Privacy mode selector */}
-        <div className="form-group">
-          <label className="form-label">Режим отправки текста</label>
-          <div style={{ display: "flex", gap: "16px", marginTop: "6px" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px" }}>
-              <input
-                type="radio"
-                name="privacy_mode"
-                checked={policy?.privacy_mode === "raw"}
-                onChange={() => onSetPrivacyMode("raw")}
-              />
-              <span>Без маскировки (исходный текст)</span>
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "13px" }}>
-              <input
-                type="radio"
-                name="privacy_mode"
-                checked={policy?.privacy_mode === "pseudonymize"}
-                onChange={() => onSetPrivacyMode("pseudonymize")}
-              />
-              <span>Локальное обезличивание (маскировка имён и телефонов)</span>
-            </label>
-          </div>
+      {/* Privacy */}
+      <div className="settings-block">
+        <div className="settings-block-title">Передача текста</div>
+        <div className="settings-block-sub">
+          Определяет, что отправляется в модель. Картинки этим не управляются.
         </div>
+        <div className="radio-group">
+          <label className="radio-label">
+            <input type="radio" name="privacy" checked={policy?.privacy_mode === "raw"}
+              onChange={() => onSetPrivacyMode("raw")} />
+            <div>
+              <div>Без маскировки</div>
+              <div className="radio-desc">Исходный текст, включая имена и контакты</div>
+            </div>
+          </label>
+          <label className="radio-label">
+            <input type="radio" name="privacy" checked={policy?.privacy_mode === "pseudonymize"}
+              onChange={() => onSetPrivacyMode("pseudonymize")} />
+            <div>
+              <div>Локальное обезличивание</div>
+              <div className="radio-desc">Имена, телефоны, email — заменяются перед отправкой</div>
+            </div>
+          </label>
+        </div>
+      </div>
 
-        {/* Excluded Apps */}
-        <div className="form-group" style={{ marginTop: "20px" }}>
-          <label className="form-label">Исключённые приложения (не читаются и не фиксируются)</label>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="Название приложения (например: 1Password, Telegram)"
-              value={newApp}
+      {/* Exclusions */}
+      <div className="settings-block">
+        <div className="settings-block-title">Исключения</div>
+        <div className="settings-block-sub">Эти приложения и сайты никогда не читаются и не фиксируются.</div>
+
+        <div className="form-row">
+          <label className="form-label">Приложения</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input className="form-input" placeholder="1Password, Telegram…" value={newApp}
               onChange={(e) => setNewApp(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddApp();
-                }
-              }}
-            />
-            <button type="button" className="btn-secondary" onClick={handleAddApp}>
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newApp.trim()) { onAddExclusion("app", newApp.trim()); setNewApp(""); } } }} />
+            <button className="btn btn-secondary btn-sm" type="button"
+              onClick={() => { if (newApp.trim()) { onAddExclusion("app", newApp.trim()); setNewApp(""); } }}>
               Добавить
             </button>
           </div>
-          <div className="tag-list">
-            {policy?.excluded_apps?.map((app) => (
-              <span key={app} className="tag-pill">
-                <span>{app}</span>
-                <X size={12} className="tag-pill-remove" onClick={() => onRemoveExclusion("app", app)} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {policy?.excluded_apps?.map((a) => (
+              <span key={a} className="pill">
+                {a}
+                <span className="pill-remove" onClick={() => onRemoveExclusion("app", a)}>×</span>
               </span>
             ))}
           </div>
         </div>
 
-        {/* Excluded Domains */}
-        <div className="form-group" style={{ marginTop: "20px" }}>
-          <label className="form-label">Исключённые веб-домены</label>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="Домен (например: sberbank.ru, accounts.google.com)"
-              value={newDomain}
+        <div className="form-row" style={{ marginBottom: 0 }}>
+          <label className="form-label">Домены</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input className="form-input" placeholder="sberbank.ru, accounts.google.com…" value={newDomain}
               onChange={(e) => setNewDomain(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddDomain();
-                }
-              }}
-            />
-            <button type="button" className="btn-secondary" onClick={handleAddDomain}>
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newDomain.trim()) { onAddExclusion("domain", newDomain.trim()); setNewDomain(""); } } }} />
+            <button className="btn btn-secondary btn-sm" type="button"
+              onClick={() => { if (newDomain.trim()) { onAddExclusion("domain", newDomain.trim()); setNewDomain(""); } }}>
               Добавить
             </button>
           </div>
-          <div className="tag-list">
-            {policy?.excluded_domains?.map((dom) => (
-              <span key={dom} className="tag-pill">
-                <span>{dom}</span>
-                <X size={12} className="tag-pill-remove" onClick={() => onRemoveExclusion("domain", dom)} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {policy?.excluded_domains?.map((d) => (
+              <span key={d} className="pill">
+                {d}
+                <span className="pill-remove" onClick={() => onRemoveExclusion("domain", d)}>×</span>
               </span>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Block 3: Storage & Maintenance (F16) */}
-      <div className="card">
-        <h2 style={{ fontSize: "16px", fontWeight: 600, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <RefreshCw size={18} color="var(--accent-purple)" />
-          <span>Файловое хранилище и переиндексация</span>
-        </h2>
-        <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px", lineHeight: 1.5 }}>
-          Если вы вносили массовые изменения или удаляли файлы в папке <code>Memory/</code> вручную, нажмите кнопку ниже для полной синхронизации SQLite базы поиска с файлами.
-        </p>
-
-        <button
-          className="btn-secondary"
-          onClick={handleReindex}
-          disabled={reindexing}
-          style={{ display: "flex", alignItems: "center", gap: "6px" }}
-        >
-          <RefreshCw size={14} className={reindexing ? "animate-spin" : ""} />
-          <span>{reindexing ? "Индексация..." : "Восстановить и переиндексировать индекс"}</span>
+      {/* Index rebuild */}
+      <div className="settings-block">
+        <div className="settings-block-title">Индекс поиска</div>
+        <div className="settings-block-sub">
+          Если вы вносили изменения в файлы Memory вручную, пересоберите индекс.
+        </div>
+        <button className="btn btn-secondary btn-sm" onClick={handleReindex} disabled={reindexing}>
+          {reindexing ? "Индексирую…" : "Пересобрать индекс из файлов"}
         </button>
-
         {reindexResult && (
-          <div style={{ marginTop: "12px", fontSize: "13px", color: "var(--accent-green)" }}>
-            {reindexResult}
-          </div>
+          <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--ink-2)" }}>{reindexResult}</div>
         )}
       </div>
     </div>
